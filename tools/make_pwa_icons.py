@@ -6,7 +6,7 @@
   icon-512-maskable.png   512px 自适应图标：按源图边框色铺满画布，图形缩到 66% 居中
   icon-180.png            iOS 的 apple-touch-icon
 
-favicon.png 是桌面版 EsprinNemo 的 assets/icon.png 副本（512×512 RGBA，圆形图形、四角透明），
+favicon.png 是桌面版 EsprinNemo 的 assets/icon.png 的逐字节副本（RGBA，圆形图形、四角透明），
 两者同源：换图标时先复制过来，再跑本脚本。源图只做面积平均缩放，
 不依赖 Pillow（纯 zlib + struct 解码 / 编码）。
 
