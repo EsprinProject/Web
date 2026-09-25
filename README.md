@@ -17,7 +17,7 @@ EsprinNemo 的网页客户端，独立仓库 `EsprinProject/Web`。EsprinSync �
 ```
 EsprinProject/Web/
 ├── index.html          页面骨架（标题栏 / 侧边栏 / 笔记列表 / 工作区 / AI 面板 / 设置）
-├── favicon.png         站点图标（1024×1024 源图，PWA 图标由它生成）
+├── favicon.png         站点图标（512×512 源图，与桌面版 assets/icon.png 同源，PWA 图标由它生成）
 ├── manifest.webmanifest  PWA 清单：名称、图标、独立窗口、启动配色
 ├── sw.js               Service Worker：界面外壳缓存与断网回退
 ├── icon-192.png        安装图标（icon-512.png / icon-512-maskable.png / icon-180.png 同批）
@@ -175,8 +175,9 @@ python -m http.server 8686        # 或 npx serve -l 8686
 
 - **清单** `manifest.webmanifest`：名称、`display: standalone`，`start_url` / `scope` / `id` 都是 `/`，
   深色启动底色，三枚图标（192 / 512 / maskable 512）加 iOS 用的 `apple-touch-icon`。
-  图标由 `tools/make_pwa_icons.py` 从 `favicon.png` 生成（纯标准库的面积平均缩放，不依赖 Pillow），
-  换图标后重跑一次即可；
+  图标由 `tools/make_pwa_icons.py` 从 `favicon.png` 生成（纯标准库的面积平均缩放，不依赖 Pillow）；
+  `favicon.png` 是桌面版 EsprinNemo `assets/icon.png` 的副本，两边保持同一份源图，
+  换图标时先复制过来再重跑一次脚本；
 - **Service Worker** `sw.js`：把界面外壳（首页、样式、脚本、图标、字体）装进版本化缓存 ——
   导航请求网络优先、断网回退到缓存，静态资源 stale-while-revalidate；
   `/sync`、`/admin`、`/health` 一律放给网络，同步与鉴权不经过缓存。
