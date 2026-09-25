@@ -21,6 +21,9 @@ EsprinProject/Web/
 ├── manifest.webmanifest  PWA 清单：名称、图标、独立窗口、启动配色
 ├── sw.js               Service Worker：界面外壳缓存与断网回退
 ├── icon-192.png        安装图标（icon-512.png / icon-512-maskable.png / icon-180.png 同批）
+├── fonts/              字体随仓库分发，断网也照常有图标
+│   ├── material-symbols/  图标字形（Material Symbols Rounded 变量字体，Apache-2.0）
+│   └── Mohave/            品牌字体（Mohave 可变字重，OFL）
 ├── styles/             与桌面版同名同源，取值逐个对齐
 │   ├── tokens.css      设计令牌：色板、圆角基础值、字体、动效
 │   ├── base.css        重置、标题栏与标签页（含拖动排序）、通用按钮
@@ -48,10 +51,34 @@ EsprinProject/Web/
     ├── ai.js           AI 助手面板：对话、流式回答、附件、Agent 模式、设置项绑定
     ├── secret.js      秘密本：AES-256-GCM 与 PBKDF2-SHA256（纯 JS）、信封、隐藏 / 密码操作
     ├── settings.js     设置视图（编辑器 / 外观 / AI 助手 / 秘密本 / 数据与同步 / 系统）
-    └── app.js          主题、主题风格、侧边栏形态与窄屏换档、快捷键与启动流程└── tools/
-    └── make_pwa_icons.py  PWA 图标生成：从 favicon.png 出 192 / 512 / maskable 512 / 180 四枚```
+    └── app.js          主题、主题风格、侧边栏形态与窄屏换档、快捷键与启动流程
+└── tools/
+    └── make_pwa_icons.py  PWA 图标生成：从 favicon.png 出 192 / 512 / maskable 512 / 180 四枚
+```
 
 网页版不提供小本本与字体定制：`scripts/scratchpad.js`、`styles/scratchpad.css` 已不再被页面引用。
+
+## 本地直接运行
+
+两条路都行，页面里的样式与脚本一律相对引用，从哪个入口进来都取得到：
+
+- **双击 `index.html`**（`file://`）：最省事。本地副本优先 IndexedDB，取不到就自动退回 localStorage
+  （`file://` 下常见，设置页「数据与同步」里能看到当前用的是哪一种）；Service Worker 与「安装为应用」
+  在 `file://` 下不生效；
+- **起一台静态服务器**（PWA 与离线外壳只有这条路上可用）：
+
+```bash
+python -m http.server 8686        # 或 npx serve -l 8686
+```
+
+然后打开 `http://127.0.0.1:8686/`。
+
+两条路上都没有 `/health` 与 `/sync/*`（它们由 EsprinSync 提供，这里一律 404），客户端据此进入
+**本地模式**：界面、本地副本与离线外壳照常，而**同步这整套一概不出现** —— 顶栏没有同步状态入口，
+设置里没有「服务器与同步」那一节（该分类在本地模式下叫「数据与存储」），也不会发出任何同步请求。
+网页版没有填写服务端地址的入口（地址取自当前站点）：要同步就用 EsprinSync 托管本页 ——
+服务端启动时会把本仓库克隆到它的 `web/` 并在根路径托管，那时同步才作为一项功能出现
+（自动连接，必要时弹一次可关闭的登录卡片）。字号、图标与品牌字体都随仓库分发，断网时不会退化成字形名。
 
 ## 界面与桌面版的一致程度
 
@@ -150,7 +177,7 @@ EsprinProject/Web/
   深色启动底色，三枚图标（192 / 512 / maskable 512）加 iOS 用的 `apple-touch-icon`。
   图标由 `tools/make_pwa_icons.py` 从 `favicon.png` 生成（纯标准库的面积平均缩放，不依赖 Pillow），
   换图标后重跑一次即可；
-- **Service Worker** `sw.js`：把界面外壳（首页、样式、脚本、图标）装进版本化缓存 ——
+- **Service Worker** `sw.js`：把界面外壳（首页、样式、脚本、图标、字体）装进版本化缓存 ——
   导航请求网络优先、断网回退到缓存，静态资源 stale-while-revalidate；
   `/sync`、`/admin`、`/health` 一律放给网络，同步与鉴权不经过缓存。
   样式或脚本有增删后把 `CACHE_NAME` 的版本号 +1，旧缓存由 `activate` 清掉；
@@ -180,6 +207,8 @@ http://<服务器地址>:8686/
 
 ## 存储与鉴权
 
+下面这一节只适用于**由 EsprinSync 托管**的页面：本地模式里没有同步，也就没有这层鉴权。
+
 网页版把**托管它的这台 EsprinSync 直接当存储**：本地只保留一份用于加速启动与断线缓存的副本
 （IndexedDB，不可用时退回 localStorage），读写最终都落在服务端的操作日志上；副本按账户各存一份，
 见下文「多账户与本地副本」。
@@ -190,7 +219,8 @@ http://<服务器地址>:8686/
 2. 探测 `/health`，再拿 `/sync/state` 试一次鉴权访问；
 3. 通过则自动进入服务端存储：首次使用做一次全量接入（重放服务器日志 + 上传服务器没见过的本地条目），
    之后按设置的节奏增量拉取，本地改动在编辑后立即推送；
-4. 被拒则弹出连接层，必须输入账户名 + 密码或访问令牌才能进入，连接层不提供跳过入口。
+4. 被拒则弹出连接层，填入账户名 + 密码或访问令牌后才能读写服务端；这张卡片可以关掉
+   （右上角 × / Esc / 点卡片外），关掉就留在本地模式，要再连点顶栏那枚状态 chip。
 
 鉴权有两种方式，同源页面默认走前者：
 
@@ -241,7 +271,7 @@ IndexedDB 库名与 localStorage 键名带上「账户名 + 服务器地址」�
   （用 `/sync/state` 的现存与删除记录判断，避免把已删除的旧副本重新推上去）。
 - **队列**：待推送操作存在浏览器 localStorage（`esprin.nemo.outbox`），断网期间的改动不会丢。
 - **状态指示器**：顶栏那枚同步 chip 的形态（连接中 / 需登录 / 未连接 / 同步中 / 同步异常 / 待推送 / 已连接）
-  全由 `Sync` 的当前状态推导，不另存一份。收尾重绘统一放在 `syncNow` 与 `importLocal` 的 `finally` 里、
+  全由 `Sync` 的当前状态推导，不另存一份（本地模式里这枚 chip 不出现）。收尾重绘统一放在 `syncNow` 与 `importLocal` 的 `finally` 里、
   且排在清 `running` 之后 —— 反过来（重绘后清标志）收尾那一次会被判成「同步中」，而此后没人再来重绘，
   chip 就一直停在「同步中」；这两条路径也都兜了 `catch`，意外异常同样会落到「同步异常」而不是留在「同步中」。
 
@@ -265,8 +295,15 @@ IndexedDB 库名与 localStorage 键名带上「账户名 + 服务器地址」�
 附：网页版的 AI 对话（`ai_chats/{id}.json`）与小本本内容（`scratchpad.json`）只落在本浏览器的 IndexedDB 里，
 **不**进同步队列，因此不会把对话记进服务器的操作日志；笔记与待办的推拉不受影响。
 
-## 离线部署（图标字体）
+## 离线与外部依赖
 
-页面通过 Google Fonts 加载 Material Symbols Rounded 与 Mohave。无外网访问时图标会退化为文字，
-如需完全离线，把 npm 包 `material-symbols` 的 `rounded.css` 与字体文件复制到 `fonts/material-symbols/`，
-再把 `index.html` 里对应的一行 `<link>` 换成本地路径即可。
+页面不向外请求任何资源：图标字形（Material Symbols Rounded）与品牌字（Mohave）随仓库分发，
+声明在 `styles/tokens.css` 的 `@font-face` 里；样式在 `styles/`，脚本在 `scripts/`。
+因此断网、`file://`、局域网内打开都是一样的界面。
+
+- **更新字体**：从 npm 包 `material-symbols` 取 `material-symbols-rounded.woff2` 覆盖
+  `fonts/material-symbols/` 下的同名文件（那份 `rounded.css` 里只有 `@font-face` 与一个类选择器，
+  本仓库只取前者，已并入 `styles/tokens.css`）；Mohave 取官方发行的可变字重文件。
+  两套字体的许可证（Apache-2.0 / OFL）随文件放在各自目录下；
+- **仍然需要网络的两处**：AI 助手要连模型服务端点；接上 EsprinSync 之后的同步、鉴权要连服务端。
+  两件都不参与首屏与编辑，断开也不影响记笔记。
