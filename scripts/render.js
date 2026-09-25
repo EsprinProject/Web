@@ -815,6 +815,16 @@ function renderSyncIndicator(state) {
 
     chip.classList.remove('state-online', 'state-error', 'state-busy');
 
+    // 离线：功能照常，只是服务端暂时够不着。不做错误态（红）—— 队列里攒下的改动会在
+    // 恢复联网后自动上传，条数直接摆出来
+    if (Sync.connection === 'offline') {
+        const queued = Sync.outbox.length;
+        icon.textContent = 'cloud_off';
+        text.textContent = `${Sync.isOffline() ? '离线' : '未连接'}${queued ? ` · 待推送 ${queued}` : ''}`;
+        chip.title = `${Sync.connectionMessage || OFFLINE_MESSAGE}（点击重试）`;
+        return;
+    }
+
     if (!State.sync.enabled) {
         if (state === 'busy' || Sync.connection === 'connecting') {
             icon.textContent = 'sync';

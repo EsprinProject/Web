@@ -9,7 +9,7 @@
    注册入口在 scripts/app.js 的 registerServiceWorker：file:// 与局域网 http 下浏览器不给
    Service Worker，那种环境里这一份不会生效（界面本身不依赖它）。 */
 
-const CACHE_NAME = 'esprinnemo-web-v6';
+const CACHE_NAME = 'esprinnemo-web-v7';
 // 首页地址按注册作用域取：根路径托管时是「/」，子路径托管时是「/xxx/」。
 // 用 sw.js 自己的地址推（注册作用域就是它所在的目录）——self.registration 在脚本求值期
 // 不一定就位，取不到会让整个 Service Worker 装不上
@@ -27,31 +27,31 @@ const SHELL_ASSETS = [
     'fonts/material-symbols/material-symbols-rounded.woff2',
     'fonts/Mohave/Mohave-VariableFont_wght.ttf',
     'styles/tokens.css',
-    '/styles/base.css',
-    '/styles/sidebar.css',
-    '/styles/editor.css',
-    '/styles/overlays.css',
-    '/styles/settings.css',
-    '/styles/ai.css',
-    '/styles/secret.css',
-    '/styles/alom.css',
-    '/styles/radius.css',
-    '/styles/mode.css',
-    '/styles/motion.css',
-    '/styles/web.css',
-    '/styles/mobile.css',
-    '/scripts/boot.js',
-    '/scripts/markdown.js',
-    '/scripts/store.js',
-    '/scripts/ui.js',
-    '/scripts/sync.js',
-    '/scripts/notes.js',
-    '/scripts/render.js',
-    '/scripts/mode.js',
-    '/scripts/ai.js',
-    '/scripts/secret.js',
-    '/scripts/settings.js',
-    '/scripts/app.js'
+    'styles/base.css',
+    'styles/sidebar.css',
+    'styles/editor.css',
+    'styles/overlays.css',
+    'styles/settings.css',
+    'styles/ai.css',
+    'styles/secret.css',
+    'styles/alom.css',
+    'styles/radius.css',
+    'styles/mode.css',
+    'styles/motion.css',
+    'styles/web.css',
+    'styles/mobile.css',
+    'scripts/boot.js',
+    'scripts/markdown.js',
+    'scripts/store.js',
+    'scripts/ui.js',
+    'scripts/sync.js',
+    'scripts/notes.js',
+    'scripts/render.js',
+    'scripts/mode.js',
+    'scripts/ai.js',
+    'scripts/secret.js',
+    'scripts/settings.js',
+    'scripts/app.js'
 ];
 
 // 接口与后台不进缓存：命中前缀即原样交给网络

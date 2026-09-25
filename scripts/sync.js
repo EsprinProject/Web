@@ -24,6 +24,8 @@ const AUTO_SYNC_PRESETS = { off: 0, '5s': 5, '1m': 60, '5m': 300, startup: 0 };
    同一台浏览器可能被两个账户先后使用（甚至两个标签页同时开着不同账户），
    不校验的话会把上一个账户的副本推给新账户、或把新账户的内容拉进旧副本。 */
 const SCOPE_VERIFY_TTL_MS = 60 * 1000;
+/* 设备断网时的统一口径：本地副本照常读写，改动留在队列里，恢复联网后自动上传 */
+const OFFLINE_MESSAGE = '设备离线，与服务端暂时断开';
 
 /* ---------------- SHA-256 ----------------
    同步协议里的 hash 是「文件字节的 sha256」，服务端与桌面端都按这个口径比对。
@@ -136,6 +138,8 @@ const Sync = {
     // 连接状态：idle / connecting / auth（等待登录）/ ready / error
     connection: 'idle',
     connectionMessage: '',
+    // 恢复联网这号后台动作期间不弹连接层（见 resume）：凭据失效也只在 chip 上标「需登录」
+    gateSuppressed: false,
     serverInfo: null,
     // 从服务端领回来的可复用 ID（删除腾出来的 ID，新建条目优先取用）
     recycledIds: [],
@@ -151,6 +155,85 @@ const Sync = {
         // 装载本地副本对应的同步游标与待推送队列；账户本身以连上后的 /sync/health 为准
         this.useScope(FileStore.scope);
         this.applyAutoSyncRuntime();
+        this.watchNetwork();
+    },
+
+    /* ---------------- 设备联网状态 ----------------
+
+       断网不是错误：connection 里单列一个 offline。界面照常用本地副本，顶栏那枚 chip 留着显示
+       状态与待推送条数，游标与队列一概不动。联网与断网由浏览器的 online / offline 事件驱动，
+       恢复后自动接回服务端。
+
+       断网时探不到 /health，「本页是不是 EsprinSync 托管」只能沿用上一次的判定（State.sync.hosted）：
+       判定为不托管就走本地模式，判定为托管或还没判定过就按离线运行。 */
+
+    // 设备有没有网。为真也不代表服务端可达 —— 那是「连不上」，由 apiRequest 的失败分支报回，
+    // 一并按离线处理
+    isOffline() {
+        return typeof navigator !== 'undefined' && navigator.onLine === false;
+    },
+
+    /* 本机有没有一份「用过」的本地副本：同步过一次，或登录过某个账户。
+       有它才敢在连不上服务端时按离线放行，否则界面里没有任何内容可看 */
+    hasLocalCopy() {
+        return !!(State.sync.lastSyncAt || State.sync.account || State.sync.token);
+    },
+
+    /* 记下本页是否由 EsprinSync 托管。断网时探不到 /health，只能靠上一次的判定：
+       静态托管的页面不该因为断网而多出一枚同步入口 */
+    markHosted(hosted) {
+        if (State.sync.hosted === hosted) return;
+        State.sync.hosted = hosted;
+        saveConfig();
+    },
+
+    /* 进入离线状态。这里不弹连接层：那层会盖住整个界面，而断网时它连不上，等于把界面锁死；
+       登录与换账户走顶栏那枚 chip */
+    enterOffline(reason, detail = '') {
+        this.connection = 'offline';
+        this.connectionMessage = detail || OFFLINE_MESSAGE;
+        this.renderIndicator();
+        // 两种来路分开记：设备没网，还是设备有网但服务端够不着
+        logSyncState(`${this.isOffline() ? '设备离线' : '服务端不可达'}，暂不与服务端通信 (reason=${reason})`);
+        return { ok: false, error: this.connectionMessage, needAuth: false, offline: true };
+    },
+
+    // 本页不由 EsprinSync 托管：界面与本地副本照常，只是没同步（顶栏那枚 chip 整枚不出现）
+    enterLocal() {
+        this.connection = 'local';
+        this.connectionMessage = '本页不由 EsprinSync 托管：没有 /health 与 /sync 接口';
+        this.markHosted(false);
+        this.renderIndicator();
+        return { ok: false, error: this.connectionMessage, needAuth: false, localOnly: true };
+    },
+
+    watchNetwork() {
+        window.addEventListener('offline', () => {
+            // 本地模式没有同步这回事，状态与它无关；已判定过不是托管的页面同样不动
+            if (this.connection === 'local' || State.sync.hosted === false) return;
+            this.enterOffline('系统通知');
+        });
+        window.addEventListener('online', () => {
+            if (this.connection === 'local' || State.sync.hosted === false) return;
+            logSyncState('系统通知已恢复联网，尝试接回服务端');
+            this.resume();
+        });
+    },
+
+    /* 接回服务端：连上过的直接同步一次（凭据与服务端信息都还在），否则重走一次连接。
+       整段属于后台动作，期间不弹连接层 —— 弹出来只会打断手头的事：凭据失效时状态落到
+       chip 上（需登录），要点它才进连接层 */
+    async resume() {
+        if (this.connection === 'local') return { ok: false, localOnly: true };
+        // 事件先到、链路还没好，或离线时手动点了一下：状态照旧
+        if (this.isOffline()) return this.enterOffline('接回服务端');
+        this.gateSuppressed = true;
+        try {
+            if (State.sync.enabled) return await this.syncNow({ reason: '恢复联网' });
+            return await this.connect({ reason: '恢复联网' });
+        } finally {
+            this.gateSuppressed = false;
+        }
     },
 
     /* ---------------- 本地命名空间 ----------------
@@ -184,7 +267,7 @@ const Sync = {
                 ? `服务端当前的账户是「${account}」，本地副本属于另一个账户：请重新登录`
                 : '无法确认当前账户，请重新登录';
             this.scopeVerifiedAt = 0;
-            if (typeof showConnectGate === 'function') showConnectGate(this.connectionMessage);
+            if (!this.gateSuppressed && typeof showConnectGate === 'function') showConnectGate(this.connectionMessage);
             return { ok: false, error: this.connectionMessage, needAuth: true };
         }
 
@@ -224,6 +307,13 @@ const Sync = {
        整段包在 try/catch 里：connect 一开头就把状态置成 connecting，意外抛出时若没人兜底，
        指示器会永远停在「连接中」、连接层也弹不出来（调用方的 catch 拿到的只是个被拒绝的 promise）。 */
     async connect({ reason = '启动' } = {}) {
+        /* 断网时探测只有失败一种结果：直接进离线状态，本地副本照常用。
+           已经判定过本页不由 EsprinSync 托管（静态托管）的，断网依旧是本地模式：
+           那种页面本来就没有同步，不该因为断网凭空多出一枚入口 */
+        if (this.isOffline()) {
+            return State.sync.hosted === false ? this.enterLocal() : this.enterOffline(reason);
+        }
+
         this.connection = 'connecting';
         this.connectionMessage = '';
         this.renderIndicator('busy');
@@ -231,10 +321,7 @@ const Sync = {
         // 本页不在 http(s) 上（双击打开的 file://、或在别的宿主里）：不可能由 EsprinSync 托管，
         // 直接本地模式 —— fetch 在 file:// 下也不可用，这里不去浪费一次探测
         if (!String(State.sync.url || '').trim() && !/^https?:$/i.test(window.location.protocol)) {
-            this.connection = 'local';
-            this.connectionMessage = '本页不由 EsprinSync 托管：没有 /health 与 /sync 接口';
-            this.renderIndicator();
-            return { ok: false, error: this.connectionMessage, needAuth: false, localOnly: true };
+            return this.enterLocal();
         }
 
         try {
@@ -243,17 +330,18 @@ const Sync = {
                 // /health 不存在、也没另行填地址：本页不是 EsprinSync 托管的（静态托管、本地预览），
                 // 按本地模式运行 —— 界面与本地副本照常，只是没有同步；要连服务端仍点同步状态那枚 chip
                 if (health.status === 404 && !String(State.sync.url || '').trim()) {
-                    this.connection = 'local';
-                    this.connectionMessage = '本页不由 EsprinSync 托管：没有 /health 与 /sync 接口';
-                    this.renderIndicator();
-                    return { ok: false, error: this.connectionMessage, needAuth: false, localOnly: true };
+                    return this.enterLocal();
                 }
+                // 压根没有 HTTP 应答（服务端未启动、路由不通）而本机已经有一份用过的副本：
+                // 也按离线放行 —— 本地副本能用，服务端回来了由 online 事件接上
+                if (!health.status && this.hasLocalCopy()) return this.enterOffline(reason, health.error);
                 this.connection = 'error';
                 this.connectionMessage = health.error;
                 this.renderIndicator('error');
                 return { ok: false, error: health.error, needAuth: false };
             }
             this.serverInfo = health.data || {};
+            this.markHosted(true);
 
             const probe = await this.apiRequest('GET', `${SYNC_PATH}/state`, null, 10000);
             if (probe.ok) {
@@ -471,6 +559,8 @@ const Sync = {
     // 本地改动后延迟推送：连续编辑只触发一次请求
     schedulePush() {
         if (!State.sync.enabled) return;
+        // 离线时队列只增不推：恢复联网后由 resume 统一推上去
+        if (this.isOffline()) return;
         clearTimeout(this.scheduled);
         this.scheduled = setTimeout(() => {
             this.scheduled = null;
@@ -527,7 +617,7 @@ const Sync = {
                     const wasAuth = this.connection === 'auth';
                     this.connection = 'auth';
                     this.connectionMessage = detail;
-                    if (!wasAuth && typeof showConnectGate === 'function') showConnectGate(detail);
+                    if (!wasAuth && !this.gateSuppressed && typeof showConnectGate === 'function') showConnectGate(detail);
                 }
                 return { ok: false, status: response.status, error: detail };
             }
@@ -677,6 +767,11 @@ const Sync = {
     async pushOutbox() {
         if (!State.sync.enabled) return { ok: true, pushed: 0, remaining: this.outbox.length };
         if (!this.outbox.length) return { ok: true, pushed: 0, remaining: 0 };
+        // 离线：请求发不出去，队列原样留着。这不算同步异常，chip 停在离线态
+        if (this.isOffline()) {
+            this.enterOffline('推送队列');
+            return { ok: false, error: this.connectionMessage, pushed: 0, remaining: this.outbox.length, offline: true };
+        }
 
         // 队列里的内容属于某个账户：推送前先确认服务端认的还是它
         const scope = await this.ensureAccountScope();
@@ -728,7 +823,7 @@ const Sync = {
        新建条目时优先领一个来用：被删掉的那一条腾出来的 ID 会重新落到新建的条目上。
        服务端会把领走的 ID 占住一会儿，所以两台设备同时新建也不会撞到同一个。 */
     async refillRecycledIds(retry = true) {
-        if (!State.sync.enabled || this.recycling) return { ok: false };
+        if (!State.sync.enabled || this.isOffline() || this.recycling) return { ok: false };
         this.recycling = true;
         try {
             const claim = () => this.apiRequest('POST', RECYCLE_CLAIM_PATH, {
@@ -780,6 +875,8 @@ const Sync = {
     async syncNow({ full = false, reason = '手动' } = {}) {
         if (this.running) return { ok: false, error: '同步正在进行中' };
         if (!State.sync.enabled) return { ok: false, error: '尚未连接到服务端' };
+        // 离线：不去发注定失败的请求，队列留着等联网
+        if (this.isOffline()) return this.enterOffline(reason);
 
         this.running = true;
         this.lastError = '';
@@ -908,14 +1005,20 @@ const Sync = {
         this.timer = null;
         if (!State.sync.enabled) return;
         if (State.sync.autoSync === 'startup') {
-            setTimeout(() => { this.syncNow({ reason: '启动' }); }, 3000);
+            setTimeout(() => { this.autoSyncTick('启动'); }, 3000);
             return;
         }
         const seconds = State.sync.autoSync === 'custom'
             ? Math.max(5, Number(State.sync.autoSyncSeconds) || 60)
             : AUTO_SYNC_PRESETS[State.sync.autoSync] || 0;
         if (!seconds) return;
-        this.timer = setInterval(() => { this.syncNow({ reason: '自动' }); }, seconds * 1000);
+        this.timer = setInterval(() => { this.autoSyncTick('自动'); }, seconds * 1000);
+    },
+
+    // 定时同步的一次触达：离线时跳过。恢复联网由 online 事件接手，不必在这里空转
+    autoSyncTick(reason) {
+        if (this.isOffline()) return;
+        this.syncNow({ reason });
     },
 
     /* ---------------- 状态展示 ---------------- */

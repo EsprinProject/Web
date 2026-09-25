@@ -211,6 +211,9 @@ const State = {
         account: '',
         token: '',
         device: '',
+        // 本页是否由 EsprinSync 托管：null 表示还没判定过。/health 够不着时（断网）
+        // 就靠它区分「离线」与「本地模式」，见 scripts/sync.js 的 connect
+        hosted: null,
         autoSync: '5s',
         autoSyncSeconds: 60,
         lastSeq: 0,
@@ -771,6 +774,7 @@ function saveConfig() {
             account: State.sync.account,
             token: State.sync.token,
             device: State.sync.device,
+            hosted: State.sync.hosted === true ? true : (State.sync.hosted === false ? false : null),
             autoSync: State.sync.autoSync,
             autoSyncSeconds: State.sync.autoSyncSeconds
         }
@@ -825,6 +829,7 @@ function loadConfig() {
     State.sync.account = typeof sync.account === 'string' ? sync.account : '';
     State.sync.token = typeof sync.token === 'string' ? sync.token : '';
     State.sync.device = typeof sync.device === 'string' ? sync.device : '';
+    State.sync.hosted = sync.hosted === true ? true : (sync.hosted === false ? false : null);
     State.sync.autoSync = typeof sync.autoSync === 'string' ? sync.autoSync : '5s';
     State.sync.autoSyncSeconds = Number(sync.autoSyncSeconds) || 60;
     // 游标（lastSeq / journalId / selfPushed / lastSyncAt）不在这里读：它按账户命名空间存放，

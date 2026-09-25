@@ -38,6 +38,8 @@ function syncThemeColor() {
 function registerServiceWorker() {
     const httpish = /^https?:$/i.test(window.location.protocol);
     if (!httpish || !('serviceWorker' in navigator) || !window.isSecureContext) return;
+    // 断网时不去注册：这一页本来就是从外壳缓存里开的，那一步只会因为取不到 sw.js 而报错
+    if (navigator.onLine === false) return;
     navigator.serviceWorker.register('sw.js').catch((error) => {
         console.warn(`[WARN] [PWA] Service worker 注册失败 (detail=${error && error.message})`);
     });
@@ -749,6 +751,19 @@ function bindEvents() {
     document.getElementById('btn-editor-back').onclick = backToNoteList;
     bindSettingsBack();
     document.getElementById('btn-sync-status').onclick = async () => {
+        // 离线：点它表示「现在试一次能不能接上」—— 链路恢复了但 online 事件没到也能靠这一下救回来
+        if (Sync.connection === 'offline') {
+            const resumed = await Sync.resume();
+            if (resumed.ok) {
+                showToast(resumed.summary ? `已接回服务端：${resumed.summary}` : '已接回服务端');
+            } else if (resumed.needAuth) {
+                showConnectGate(resumed.error || '');
+            } else {
+                showToast(`仍处于离线：${resumed.error || Sync.connectionMessage}`);
+            }
+            renderSyncIndicator();
+            return;
+        }
         // 未连接到服务端时弹连接层；已连接则立即同步一次
         if (!State.sync.enabled) {
             showConnectGate(Sync.connectionMessage || '');
@@ -1155,6 +1170,13 @@ async function autoConnect(message = '') {
     const result = await Sync.connect({ reason: '启动' });
     if (result.ok) {
         renderApp();
+        return;
+    }
+    // 离线（或服务端暂时够不着）：直接进界面，本地副本照常用。连接层会盖住整个界面，
+    // 而离线时它连不上，弹出来只会把界面堆死
+    if (result.offline) {
+        console.log(`[INFO] [App] 设备离线，按本地副本运行 (detail=${result.error})`);
+        renderSyncIndicator();
         return;
     }
     if (result.localOnly) {

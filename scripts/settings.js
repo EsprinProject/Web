@@ -821,14 +821,17 @@ function bindDataSyncPanel() {
     if (status) {
         const online = State.sync.enabled && Sync.connection === 'ready';
         const local = Sync.connection === 'local';
+        const offline = Sync.connection === 'offline';
         const detail = Sync.connectionMessage || Sync.lastError || '';
         status.textContent = online
             ? `已连接：${Sync.outbox.length ? `${Sync.outbox.length} 条改动待推送` : '本地与服务器已同步'}`
                 + `${State.sync.lastSyncAt ? `；上次同步 ${formatDateTime(State.sync.lastSyncAt)}` : ''}`
-            : local
-                ? `本地模式：${detail || '本页不由 EsprinSync 托管'}，笔记与待办只存在本浏览器`
-                : (detail ? `未连接：${detail}` : '未连接：请先登录或填写访问令牌');
-        status.classList.toggle('is-error', !online && !local && !!detail);
+            : offline
+                ? `${detail || '服务端暂时无法连接'}；本地副本照常可读写，恢复联网后自动推送`
+                : local
+                    ? `本地模式：${detail || '本页不由 EsprinSync 托管'}，笔记与待办只存在本浏览器`
+                    : (detail ? `未连接：${detail}` : '未连接：请先登录或填写访问令牌');
+        status.classList.toggle('is-error', !online && !local && !offline && !!detail);
     }
 
     const account = document.getElementById('data-sync-account');
