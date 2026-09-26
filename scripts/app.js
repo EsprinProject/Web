@@ -316,11 +316,17 @@ const listPager = {
 
     measure() {
         const panel = document.querySelector('.notes-panel');
-        this.width = (this.list && this.list.clientWidth) || (panel && panel.clientWidth) || 0;
+        this.width = (this.list && this.list.offsetWidth) || (panel && panel.offsetWidth) || 0;
         return this.width;
     },
 
-    // 快照与列表同一块位置、同高同宽，只是横向让开一整页
+    // 快照与列表同一块位置、同宽，只是横向让开一整页。
+    // 几何照列表此刻的实际盒子算（不假设它贴着面板左上角、也不假设它满宽）；
+    // 取 offset* 而不是 getBoundingClientRect()：手指中途掉头时列表上正挂着 translateX，
+    // rect 会把这段位移算进去，快照就跟着多让了一页。
+    // 高度分两种：普通列表两页都是满高，照列表的盒子钉住就行；搜索期间列表是内容多高就多高
+    // （见 styles/mobile.css 的 max-height），快照必须按自己的内容撑开 —— 钉成当前列表的高度的话，
+    // 比当前页长的相邻页只会露出一截（被 overflow 裁掉），换页后剩下的才整段冒出来
     mount(filter, step) {
         const panel = document.querySelector('.notes-panel');
         if (!panel || !this.list) return;
@@ -329,11 +335,13 @@ const listPager = {
         const page = buildListPage(filter);
         // 侧边类名用来把两者之间那条分界线画到朝向当前页的一侧
         page.classList.add('notes-list-ghost', step > 0 ? 'to-right' : 'to-left');
-        const listBox = this.list.getBoundingClientRect();
-        const panelBox = panel.getBoundingClientRect();
-        page.style.top = `${Math.round(listBox.top - panelBox.top)}px`;
-        page.style.height = `${Math.round(listBox.height)}px`;
-        page.style.left = `${step > 0 ? this.width : -this.width}px`;
+        const searchFocused = document.activeElement === document.getElementById('input-search');
+        page.style.top = `${this.list.offsetTop}px`;
+        page.style.width = `${this.width}px`;
+        page.style.left = `${this.list.offsetLeft + (step > 0 ? this.width : -this.width)}px`;
+        // 分界线只画到两页里较矮的那一页收尾处：值给当前列表的高度，快照自己更矮时被裁掉
+        page.style.setProperty('--ghost-divider-h', `${this.list.offsetHeight}px`);
+        if (!searchFocused) page.style.height = `${this.list.offsetHeight}px`;
         panel.appendChild(page);
         this.ghost = page;
     },
@@ -434,9 +442,11 @@ const listPager = {
    拇指在列表上往左 / 往右划，按底栏那四个筛选的次序前后翻一页（笔记 → 待办 → 置顶 → 废纸篓），
    并且跟手：认定的横向滑动会把列表整块跟着手指移，相邻页的卡片此刻也拼好排在旁边，
    松手滑过阈值就提交（重渲染整页并归位），没滑够就弹回原位。
-   只认「起点落在列表里、没被别的手势或浮层接管」的滑动：屏幕左缘那一条留给浏览器
+   只认「起点落在中栏面板里、没被别的手势或浮层接管」的滑动：屏幕左缘那一条留给浏览器
    自己的返回手势（原先留给导航抽屉），输入框与按钮上的横向拖动不算，浮层铺开时遮罩盖住列表，
-   事件也就落不到这里；当前筛选不是那四个之一（文件夹、标签）时整条手势不动作。 */
+   事件也就落不到这里；搜索期间列表在表头下方截断（压深层也是面板的子元素），这条手势照常，
+   相邻页快照按列表此刻的实际盒子定位，见 listPager.mount；当前筛选不是那四个之一
+   （文件夹、标签）时整条手势不动作。 */
 const FILTER_SWIPE_MIN_X = 8;           // 认定「横向滑动」所需的最小位移
 const FILTER_SWIPE_COMMIT_X = 48;       // 松手时至少滑过这么远才翻页
 const FILTER_SWIPE_COMMIT_RATIO = 0.25; // 或者滑过一页宽的四分之一
@@ -591,17 +601,34 @@ function selectMobileFilter(filter) {
 
 /* ---------------- 窄屏：列表上的上下拉手势 ----------------
    列表拉到顶 / 底之后（再拉也滚不动）继续往下 / 往上拉：
-     下滑 → 聚焦搜索框（手机上没有 Ctrl+K，搜索就靠这一下把键盘唤起来）；
+     下滑 → 拽顶栏唤出搜索（手机上没有 Ctrl+K，搜索就靠这一下把键盘唤起来，
+            见下面「下拉搜索」那一节）；
      上滑 → 与底栏中间那枚同义：平时滑出新建面板，废纸篓下换成清空确认
             （见 render.js 的 applyMobileFabMode）。
    只在「本来就没得滚」的那一头接，所以列表中间的上下拖动仍只是滚列表；
    横向拉开超过 30px 的交给翻页手势（见 bindFilterSwipe），两者互不接管。 */
-const PULL_GESTURE_MIN_Y = 64;   // 触发所需的纵向位移
+const PULL_GESTURE_MIN_Y = 64;   // 上滑触发所需的纵向位移
 const PULL_GESTURE_AXIS = 30;    // 横向超过这个就当作横向操作，本手势不接
 
 function focusSearchBox() {
     const input = document.getElementById('input-search');
     if (input) input.focus();
+}
+
+/* 退出搜索时把框清空：搜索框失焦就是退出（收起软键盘、点压深层、点开条目、切到别的控件都算），
+   清掉关键字后整页才真正回到未筛选的列表，底栏也跟着回来。
+   落点在下头这几个上不算退出 —— 搜索框那一行的控件（清除 ×、筛选、排序）是在「这次搜索」里
+   接着操作，结果列表里则是接着看 / 接着翻，关键字都得留着。
+   iOS 上按按钮不转移焦点（focusout 的 relatedTarget 是空的），所以另记一个按下那一刻的标记，
+   它比焦点更早知道用户按的是哪儿。 */
+const SEARCH_KEEP_FOCUS = '#btn-search-clear, #btn-list-filter, #select-sort, #notes-list-box';
+let searchKeepFocus = false;
+
+function clearSearchQuery() {
+    State.searchQuery = '';
+    // 输入期间排着的重渲染作废：这一次清空自己会渲染一遍
+    clearTimeout(searchDebounce);
+    renderListPanel();
 }
 
 // 与底栏中间那枚同义。底栏不在场时不接：让位时它要么是 display: none（桌面端），
@@ -615,11 +642,85 @@ function triggerMobileFabAction() {
     setMobileSheetOpen(!isMobileSheetOpen());
 }
 
+/* ---------------- 窄屏：下拉搜索 ----------------
+   列表拉到顶后继续往下拉：整页跟着手指往下走一点点（跟手）—— 标题栏与它下面的列表
+   一起下移，屏幕顶部因此被拉开一截；松手后一起弹回原位，随后聚焦搜索框把键盘唤起来
+   （手机上没有 Ctrl+K，搜索就靠这一下）。
+
+   位移不逐元素写：脚本只改 <html> 上的 --mobile-topbar-pull，标题栏与 .app-body 各自拿它做
+   translateY（见 styles/mobile.css 第 1.10 节），因此跟手时是一条线，弹回时也一起回。
+   -pull 期间那条过渡被停掉（否则位移落后手指），摘掉它之后位移归零那一帧才播弹回。
+   搜索态（压深层与浮起的结果面板）在松手那一拍就位：聚焦与摘掉 -pull 是同一帧，
+   因此压深从回弹一开始就淡入、与回弹同时收尾；-lifted 只负责弹回期间把位移挂住。 */
+
+const MOBILE_TOP_PULL_COMMIT = 64;    // 手指至少拉过这么远才开
+const MOBILE_TOP_PULL_FLICK = 0.35;   // 或者甩得够快就来（px/ms，即 350px/s）
+const MOBILE_TOP_PULL_MAX = 80;       // 整页最多被拉下去这么远（“拉下来一点点”）
+const MOBILE_TOP_PULL_SETTLE_MS = 260; // 弹回原位的兜底时长
+
+let topbarSettleToken = 0;
+let topbarSettleTimer = 0;
+let topbarSettleHandler = null;
+
+// 跟手：整页跟着手指往下走一点点。回弹量按 上限 × 行程 / (行程 + 上限) 算 ——
+// 越拉越拉不动，像橡皮筋；重新拉一下就把上一次还没落定的弹回作废
+function dragMobileTopbar(dy) {
+    const bar = document.getElementById('app-titlebar');
+    if (!bar) return;
+    topbarSettleToken += 1;
+    clearTimeout(topbarSettleTimer);
+    const travel = Math.max(0, dy);
+    const offset = MOBILE_TOP_PULL_MAX * travel / (travel + MOBILE_TOP_PULL_MAX);
+    document.documentElement.classList.add('mobile-topbar-pull', 'mobile-topbar-lifted');
+    document.documentElement.style.setProperty('--mobile-topbar-pull', `${offset.toFixed(2)}px`);
+}
+
+// 松手：先在这一拍把搜索框聚焦（iOS 只认用户手势那一下的 focus()，等到过渡结束再聚焦
+// 就不弹键盘了），再让整页弹回原位。聚焦与摘掉 -pull 同帧 → 搜索态（压深层与浮起的结果
+// 面板）跟着回弹一起进场，两件事同一时间收尾；-lifted 只把弹回期间的位移挂到过渡结束
+function settleMobileTopbar(open) {
+    const html = document.documentElement;
+    html.classList.remove('mobile-topbar-pull');
+    html.style.setProperty('--mobile-topbar-pull', '0px');
+    if (open) focusSearchBox();
+
+    const token = ++topbarSettleToken;
+    clearTimeout(topbarSettleTimer);
+    const bar = document.getElementById('app-titlebar');
+    if (topbarSettleHandler && bar) bar.removeEventListener('transitionend', topbarSettleHandler);
+    topbarSettleHandler = null;
+
+    const finish = () => {
+        if (token !== topbarSettleToken) return;
+        clearTimeout(topbarSettleTimer);
+        html.classList.remove('mobile-topbar-lifted');
+    };
+    if (!bar) {
+        finish();
+        return;
+    }
+    // 过渡结束就落定；本来就没位移过（或过渡被打断）时不派发 transitionend，另留定时器兜底
+    topbarSettleHandler = (event) => {
+        if (event.propertyName !== 'transform') return;
+        if (topbarSettleHandler && bar) bar.removeEventListener('transitionend', topbarSettleHandler);
+        topbarSettleHandler = null;
+        finish();
+    };
+    bar.addEventListener('transitionend', topbarSettleHandler);
+    topbarSettleTimer = setTimeout(() => {
+        if (topbarSettleHandler && bar) bar.removeEventListener('transitionend', topbarSettleHandler);
+        topbarSettleHandler = null;
+        finish();
+    }, MOBILE_TOP_PULL_SETTLE_MS);
+}
+
 function bindListPullGestures() {
     let startX = 0;
     let startY = 0;
     let tracking = false;
     let axis = '';
+    let dragging = false;   // 正在往下拽整页
+    let samples = [];       // 最近几个触摸点（只留 y 与时间），用来算甩动速度
 
     // 还能往那一头滚就不接：那是在滚列表，拉到顶 / 底之后才轮到这两个手势
     const canPull = (dy) => {
@@ -627,6 +728,26 @@ function bindListPullGestures() {
         if (!box) return false;
         if (dy > 0) return box.scrollTop <= 0;
         return box.scrollTop >= box.scrollHeight - box.clientHeight - 1;
+    };
+
+    // 甩动速度（px/ms）：只看最后 100ms 这一小段，手指停下来再抬起的速度因此接近于 0
+    const flickVelocity = () => {
+        if (samples.length < 2) return 0;
+        const last = samples[samples.length - 1];
+        let first = last;
+        for (let i = samples.length - 1; i >= 0; i -= 1) {
+            if (last.t - samples[i].t > 100) break;
+            first = samples[i];
+        }
+        const span = last.t - first.t;
+        return span > 0 ? (last.y - first.y) / span : 0;
+    };
+
+    // 拖动中途的收场：转屏、被翻页手势接管、或拉到一半列表又滚起来了，顶栏都退回去
+    const abortDrag = () => {
+        if (!dragging) return;
+        dragging = false;
+        settleMobileTopbar(false);
     };
 
     document.addEventListener('touchstart', (event) => {
@@ -637,6 +758,8 @@ function bindListPullGestures() {
         const touch = event.touches[0];
         tracking = true;
         axis = '';
+        dragging = false;
+        samples = [];
         startX = touch.clientX;
         startY = touch.clientY;
     }, { passive: true });
@@ -646,6 +769,8 @@ function bindListPullGestures() {
         const touch = event.touches[0];
         const dx = touch.clientX - startX;
         const dy = touch.clientY - startY;
+        samples.push({ y: touch.clientY, t: event.timeStamp });
+        if (samples.length > 8) samples.shift();
         if (!axis) {
             if (Math.abs(dx) > PULL_GESTURE_AXIS) {
                 tracking = false;
@@ -654,7 +779,14 @@ function bindListPullGestures() {
             if (Math.abs(dy) < 8) return;
             axis = 'y';
         }
-        if (!canPull(dy)) tracking = false;
+        if (!canPull(dy)) {
+            abortDrag();
+            tracking = false;
+            return;
+        }
+        // 下滑拽顶栏（手指掉头往上时位移跟着回收）；上滑留给松手那一下
+        if (dy > 0) dragging = true;
+        if (dragging) dragMobileTopbar(dy);
     }, { passive: true });
 
     document.addEventListener('touchend', (event) => {
@@ -662,12 +794,22 @@ function bindListPullGestures() {
         tracking = false;
         if (axis !== 'y') return;
         const dy = event.changedTouches[0].clientY - startY;
+        if (dy > 0) {
+            if (!dragging) return;
+            dragging = false;
+            samples.push({ y: event.changedTouches[0].clientY, t: event.timeStamp });
+            const passed = dy >= MOBILE_TOP_PULL_COMMIT || flickVelocity() > MOBILE_TOP_PULL_FLICK;
+            settleMobileTopbar(passed);
+            return;
+        }
         if (Math.abs(dy) < PULL_GESTURE_MIN_Y || !canPull(dy)) return;
-        if (dy > 0) focusSearchBox();
-        else triggerMobileFabAction();
+        triggerMobileFabAction();
     }, { passive: true });
 
-    document.addEventListener('touchcancel', () => { tracking = false; }, { passive: true });
+    document.addEventListener('touchcancel', () => {
+        tracking = false;
+        abortDrag();
+    }, { passive: true });
 }
 
 /* ---------------- 窄屏：编辑器的进退场 ----------------
@@ -853,12 +995,29 @@ function bindEvents() {
         clearTimeout(searchDebounce);
         searchDebounce = setTimeout(renderListPanel, 120);
     });
+    // 按下搜索框那一行的控件、或结果列表里的任意处，都算「还在这次搜索里」：
+    // 随后那一次失焦不清关键字（见 SEARCH_KEEP_FOCUS）
+    document.addEventListener('pointerdown', (event) => {
+        const target = event.target;
+        searchKeepFocus = target instanceof Element && !!target.closest(SEARCH_KEEP_FOCUS);
+    }, true);
+    searchInput.addEventListener('focus', () => { searchKeepFocus = false; });
+    // 失焦即退出搜索：关键字清掉（窄屏才有「搜索态」这回事，桌面端的搜索框是常驻筛选框，不清）
+    searchInput.addEventListener('focusout', (event) => {
+        if (!isNarrowScreen() || !State.searchQuery) return;
+        const next = event.relatedTarget;
+        const keep = searchKeepFocus || (next instanceof Element && !!next.closest(SEARCH_KEEP_FOCUS));
+        if (keep) return;
+        clearSearchQuery();
+    });
     document.getElementById('btn-search-clear').onclick = () => {
-        State.searchQuery = '';
-        searchInput.value = '';
-        document.getElementById('btn-search-clear').classList.add('hidden');
-        renderListPanel();
+        clearSearchQuery();
         searchInput.focus();
+    };
+    // 窄屏搜索期间那块压深层：点它退出搜索 —— 收起键盘（聚焦是搜索态的唯一开关，见 styles/mobile.css），
+    // 关键字随这次失焦一起清掉，整页真正回到未筛选的列表
+    document.getElementById('mobile-search-mask').onclick = () => {
+        if (document.activeElement === searchInput) searchInput.blur();
     };
     document.getElementById('select-sort').onchange = (event) => {
         State.sortBy = event.target.value;

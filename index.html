@@ -202,6 +202,12 @@
                     </select>
                 </div>
             </div>
+            <!-- 手机端下拉搜索的压深层：盖的是这块面板，不是整个窗口 ——
+                 它从面板顶端开始，顶栏（含状态栏那一格）根本不在范围里，
+                 因此不存在「遮罩压过顶栏」；搜索期间底栏本就收起，也不必它去盖。
+                 表头与列表各自抬到它之上（见 styles/mobile.css 第 1.10 节），
+                 表头那块不透明的底露出来的下沿正好是分界线 -->
+            <div class="mobile-search-mask" id="mobile-search-mask" aria-hidden="true"></div>
             <div class="notes-list" id="notes-list-box"></div>
         </section>
 

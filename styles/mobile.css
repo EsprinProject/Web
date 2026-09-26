@@ -7,6 +7,7 @@
 .mobile-tabbar,
 .mobile-sheet-mask,
 .mobile-ai-mask,
+.mobile-search-mask,
 .mobile-menu-toggle,
 .list-filter-toggle,
 .note-card-more,
@@ -449,6 +450,98 @@
         padding-left: 8px;
     }
 
+    /* ---------------- 1.10 下拉搜索 ----------------
+       列表拉到顶后继续往下拉：顶栏（分界线以上的整块 —— 标题栏、搜索框与列表表头那一行）
+       跟着手指往下走一点点（跟手，带阻尼），松手后弹回原位，随后聚焦搜索框；
+       跟手、吸附与聚焦见 scripts/app.js 的 bindListPullGestures。
+
+       搜索期间（搜索框聚焦）分界线以下压深，搜索结果不是另写的一份列表：
+       中栏列表自己在表头下方截断（外形仍是列表本身，见第 2 节），压在压深层之上 ——
+       因此结果与列表永远是同一份数据、同一套卡片。判定全交给 CSS 的 :has()，
+       与「搜索期间收起底栏」共用同一个条件（见第 1 节），不经过 JS。 */
+
+    /* 被拉动的是标题栏与它的全部内容（.app-body 里装着列表与工作区）：
+       顶栏在动，底下的列表也跟着一起往下走，才像整页被拉开一道。
+       位移由脚本写进 --mobile-topbar-pull（跟手），弹回那一下走这条过渡 ——
+       带了回弹，才像被拉开又弹回去。
+       位移只在被拉动 / 弹回期间存在：常挂一个 translateY(0px) 也会让 .app-body 成为
+       固定定位的参照，窄屏整屏铺开的工作区与几处遮罩都会跟着错位 */
+    #app-titlebar,
+    .app-body {
+        transition: transform var(--motion-base) cubic-bezier(0.34, 1.4, 0.64, 1);
+    }
+    html.mobile-topbar-pull #app-titlebar,
+    html.mobile-topbar-pull .app-body,
+    html.mobile-topbar-lifted #app-titlebar,
+    html.mobile-topbar-lifted .app-body {
+        transform: translateY(var(--mobile-topbar-pull, 0px));
+    }
+    html.mobile-topbar-pull #app-titlebar,
+    html.mobile-topbar-pull .app-body {
+        /* 手指还在的时候过渡停掉，否则位移会落后手指 */
+        transition: none;
+    }
+
+    /* 压深层：中栏面板自己的一层（见 index.html），不是盖满整窗的一层 ——
+       它从面板顶端开始，标题栏与状态栏那一格根本不在它的范围里，不存在压过顶栏的可能；
+       底栏（291）在搜索期间本就收起，也不必它去盖。
+       深色而不是主题色：这是「其余部分压暗」，浅色主题下也要压暗。
+       取值与新建面板 / 条目菜单那两层遮罩（.mobile-sheet-mask、.mobile-ai-mask）同一档，
+       三处压深看起来是同一种东西 */
+    .mobile-search-mask {
+        display: block;
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+        opacity: 0;
+        pointer-events: none;
+        z-index: 1;
+        transition: opacity var(--motion-base) var(--ease-out);
+    }
+    /* 搜索态在松手那一拍就生效（聚焦与回弹同一帧，见 scripts/app.js 的 settleMobileTopbar）：
+       深色底从那时候开始淡入、与回弹同时走完，不再等回弹结束再单独淡进来。
+       这一条不看 -lifted：那个类名只负责弹回期间把位移挂住 */
+    html:has(#input-search:focus) .mobile-search-mask {
+        opacity: 1;
+        pointer-events: auto;
+    }
+    /* 搜索中的顶栏那一格与结果列表都抬到它之上（2 > 1）。
+       表头那块底与列表同色（--bg-list），既不压暗也看不出补过色；
+       它露出来的下沿正好落在那条分界线上，压深层就从分界线往下开始 */
+    html:has(#input-search:focus) .notes-panel-header {
+        position: relative;
+        z-index: 2;
+        background: var(--bg-list);
+    }
+
+    /* 搜索结果：中栏列表自己截短 —— 内容多高就多高，结果多了到 58dvh 后自己滚，
+       下面那一段留给压深层。
+       外形一律照普通列表那套：不缩进、不去角、不加投影，行宽与分隔线同宽同位，
+       看着就是「列表在表头下面截断了」，而不是另浮起一张卡片（结果与列表本就是同一份）。
+       同样在松手那一拍就位（与压深层同时）：整段回弹（--motion-base）期间，
+       结果列表与正在淡入的压深一起出现，两件事看着是一件事。
+       这一条只管当前这一页：相邻页快照（.notes-list-ghost）必须留在面板的纵向流式排版
+       之外，跟着一起改的话它会被排到当前列表下面、再被行内的 top / left 推着停在屏幕中间
+       （见本节末「滑动切页」那一段） */
+    html:has(#input-search:focus) .notes-list:not(.notes-list-ghost) {
+        position: relative;
+        z-index: 2;
+        /* 不再是撑满剩余高度的一栏，而是内容多高就多高 */
+        flex: 0 1 auto;
+        max-height: 58dvh;
+        padding-bottom: 0;
+        background: var(--bg-list);
+    }
+    /* 快照在搜索期间也要与当前页同一副样子（不透明底，否则行间会透出压深层），
+       并抬到压深层（1）之上；位置与宽度由行内样式给出，高度则留给内容 —— 上限与当前列表
+       同一条，这样相邻页比当前页长时也能整段露出来（见 scripts/app.js 的 listPager.mount）*/
+    html:has(#input-search:focus) .notes-list-ghost {
+        z-index: 2;
+        padding-bottom: 0;
+        max-height: 58dvh;
+        background: var(--bg-list);
+    }
+
     /* ---------------- 2. 列表项：列表式，不是卡片式 ----------------
        卡片式（每项一块圆角底、项与项之间留空隙）在手机上既费高度、也不便扫读：
        改成整行铺满的列表 —— 行与行之间一条细线，行内仍是「标题 / 摘要 / 时间·文件夹」，
@@ -493,6 +586,9 @@
         will-change: transform;
     }
     .notes-list-ghost {
+        /* 必须留在面板的流式排版之外：位置与宽度由行内样式给（见 scripts/app.js 的
+           listPager.mount），高度在普通列表下也由行内给（两页同高）、搜索期间留给内容，
+           这一条只是它的身份 —— 搜索期间的结果列表规则专门把它排除，别在这里让位 */
         position: absolute;
         width: 100%;
         pointer-events: none;
@@ -500,12 +596,14 @@
         overflow: hidden;
     }
     /* 两页之间那条分界线：画在相邻页贴着当前页的那一侧边上，跟着相邻页一起动。
-       与桌面端列表栏之间的竖线同一道颜色与粗细 */
+       与桌面端列表栏之间的竖线同一道颜色与粗细。
+       高度取两页里较矮的那一页：--ghost-divider-h 是当前列表的高度（脚本给的），
+       快照自己更矮时被 overflow 裁掉，结果一样 */
     .notes-list-ghost::before {
         content: '';
         position: absolute;
         top: 0;
-        bottom: 0;
+        height: var(--ghost-divider-h, 100%);
         width: 1px;
         background: var(--border-color);
     }
@@ -713,6 +811,9 @@
     .mobile-sheet-inner,
     .mobile-sheet-mask,
     .mobile-ai-mask,
+    .mobile-search-mask,
+    #app-titlebar,
+    .notes-panel-header,
     .notes-list,
     .mobile-tabbar,
     .app-body > .workspace,
