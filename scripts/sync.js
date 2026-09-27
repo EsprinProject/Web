@@ -5,7 +5,9 @@
      - 拉取时按 seq 递增应用远端操作，本地有未推送改动时保留本地。
 
    鉴权：服务端一律要求凭据，没拿到登录态就无法读写。网页版由本服务端托管，
-   默认走同源的 /admin 登录会话（Cookie）；也可以在设置里填访问令牌改用 Bearer 方式。 */
+   默认走同源的 /admin 登录会话（Cookie）；也可以在设置里填访问令牌改用 Bearer 方式。
+
+   只有静态资源的托管域名（见 STATIC_HOSTS）上没有服务端：这种站点整个同步层不启动。 */
 
 const SYNC_PATH = '/sync';
 const HEALTH_PATH = '/health';
@@ -26,6 +28,9 @@ const AUTO_SYNC_PRESETS = { off: 0, '5s': 5, '1m': 60, '5m': 300, startup: 0 };
 const SCOPE_VERIFY_TTL_MS = 60 * 1000;
 /* 设备断网时的统一口径：本地副本照常读写，改动留在队列里，恢复联网后自动上传 */
 const OFFLINE_MESSAGE = '设备离线，与服务端暂时断开';
+/* 只托管静态资源的站点：这些域名上不存在 EsprinSync，进来即按本地模式运行，
+   连 /health 都不去探测。自建托管（含局域网 IP、自定义域名）不在其列，仍由探测决定 */
+const STATIC_HOSTS = ['esprinnemo.pages.dev'];
 
 /* ---------------- SHA-256 ----------------
    同步协议里的 hash 是「文件字节的 sha256」，服务端与桌面端都按这个口径比对。
@@ -152,6 +157,8 @@ const Sync = {
     scopeVerifiedAt: 0,
 
     init() {
+        // 静态托管域名上没有服务端：判定先落地，界面、断网事件与队列据此一律按本地模式处理
+        if (this.isStaticHost()) this.enterLocal();
         // 装载本地副本对应的同步游标与待推送队列；账户本身以连上后的 /sync/health 为准
         this.useScope(FileStore.scope);
         this.applyAutoSyncRuntime();
@@ -171,6 +178,12 @@ const Sync = {
     // 一并按离线处理
     isOffline() {
         return typeof navigator !== 'undefined' && navigator.onLine === false;
+    },
+
+    /* 本页是否落在只托管静态资源的域名上（见 STATIC_HOSTS）。
+       命中时同步整套都不存在：探测、队列、连接层一概不发生 */
+    isStaticHost() {
+        return STATIC_HOSTS.includes(String(window.location.hostname || '').toLowerCase());
     },
 
     /* 本机有没有一份「用过」的本地副本：同步过一次，或登录过某个账户。
@@ -304,9 +317,13 @@ const Sync = {
     /* 探测服务端并确认凭据：先要一份无需授权的服务端信息，再用它判断该走登录还是填令牌；
        最后拿同步接口试一次，能读就说明凭据可用。
        探测不到服务端（/health 404）时报回 localOnly：调用方据此按本地模式运行，不弹连接层。
+       静态托管域名（STATIC_HOSTS）上没有服务端：直接按本地模式返回，不浪费一次注定 404 的探测。
        整段包在 try/catch 里：connect 一开头就把状态置成 connecting，意外抛出时若没人兜底，
        指示器会永远停在「连接中」、连接层也弹不出来（调用方的 catch 拿到的只是个被拒绝的 promise）。 */
     async connect({ reason = '启动' } = {}) {
+        // 站点只有静态资源：同步没有对象，直接本地模式
+        if (this.isStaticHost()) return this.enterLocal();
+
         /* 断网时探测只有失败一种结果：直接进离线状态，本地副本照常用。
            已经判定过本页不由 EsprinSync 托管（静态托管）的，断网依旧是本地模式：
            那种页面本来就没有同步，不该因为断网凭空多出一枚入口 */
@@ -514,6 +531,8 @@ const Sync = {
        队列存在 localStorage 里，重新登录后会被推上去，期间的改动不会丢；
        同时 pendingFor 会让拉取跳开这些路径，本地改动不会被远端旧内容覆盖。 */
     queueLocalChange(kind, path) {
+        // 本地模式没有推送对象：入队只会白占浏览器存储，连摘要都不必算
+        if (!this.supportsSync()) return;
         const op = kind === 'del'
             ? { opId: this.makeOpId(), op: 'del', path, time: Date.now() }
             : this.buildPutOp(path);
@@ -579,8 +598,10 @@ const Sync = {
     },
 
     /* 本页有没有同步这回事：只有由 EsprinSync 托管才有。本地模式（file://、外部静态托管）
-       一律没有同步入口、没有定时器，也不发任何同步请求。 */
+       一律没有同步入口、没有定时器，也不发任何同步请求。
+       静态托管域名在连接流程跑起来之前就已定性，因此这里不等 connection 落地。 */
     supportsSync() {
+        if (this.isStaticHost()) return false;
         return this.connection !== 'local';
     },
 
