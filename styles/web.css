@@ -416,49 +416,87 @@ html.modern-layout .titlebar {
         font-size: 15px;
     }
 
+    /* 桌面端专属设置项在手机/窄屏端收起 */
+    .settings-row-desktop-only {
+        display: none !important;
+    }
+
     /* 2.7 设置页：两级 —— 第一级是分类列表，点进去才是该分类的面板。
-       层级写在 #settings-view 的 .is-subpage 上（见 scripts/settings.js），两栏因此只排出一栏；
-       桌面端两栏并排，这一节不生效（那一侧只有 .settings-crumb 等窄屏专属元素被收起）。
-       第一级的行高向底栏那几页靠拢，一屏扫得完也点得中。
+       层级写在 #settings-view 的 .is-subpage 上（见 scripts/settings.js）。
+       在窄屏下采用整行通栏平铺列表（非卡片式，去外框与底色，仅以行细线分隔），配以平滑滑入滑出动效。
        这一页自己就是整屏铺开的，右上角那组悬浮按钮会压住分类条，索性收起 */
     html:has(#settings-view:not(.hidden)) #app-titlebar {
         display: none;
     }
     .settings-view {
-        flex-direction: column;
-    }
-    /* 第一级：整屏的分类列表。行贴两侧，内边距交给行自己；
-       上下安全区由 .app-container 统一让开（见本文件第一档），这里不再重复算 */
-    .settings-sidebar {
+        flex-direction: row;
+        position: relative;
+        overflow: hidden;
         width: 100%;
-        flex: 1;
-        min-height: 0;
+        height: 100%;
+    }
+    /* 第一级与第二级面板并列存在，通过容器内平滑 translateX 进行层级切换 */
+    .settings-sidebar,
+    .settings-main {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        transition: transform var(--motion-base) cubic-bezier(0.2, 0.9, 0.3, 1),
+                    opacity var(--motion-base) var(--ease-out);
+        will-change: transform, opacity;
+    }
+    .settings-sidebar {
+        flex: none;
         border-right: none;
         border-bottom: none;
-        padding: 0;
+        padding: 0 0 calc(16px + env(safe-area-inset-bottom)) 0;
         overflow-x: hidden;
         overflow-y: auto;
+        transform: translateX(0);
+        opacity: 1;
+        background-color: var(--bg-body);
     }
-    /* 第一级顶端那条：左边「返回」回笔记列表，右边就是这一页的名字 */
+    .settings-view.is-subpage .settings-sidebar {
+        transform: translateX(-24%);
+        opacity: 0.6;
+        pointer-events: none;
+    }
+    .settings-main {
+        display: flex;
+        flex-direction: column;
+        transform: translateX(100%);
+        opacity: 0;
+        pointer-events: none;
+        background-color: var(--bg-body);
+    }
+    .settings-view.is-subpage .settings-main {
+        transform: translateX(0);
+        opacity: 1;
+        pointer-events: auto;
+    }
+    /* 第一级顶端：48px 导航栏 */
     .settings-nav-head {
         display: flex;
         align-items: center;
         gap: 4px;
         height: 48px;
         padding: 0 8px;
+        border-bottom: 1px solid var(--border-color);
+        background-color: var(--bg-titlebar);
     }
     html.modern-layout .settings-back,
     html:not(.modern-layout) .settings-back {
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 4px;
         width: auto;
         height: 36px;
         padding: 0 8px;
         margin-bottom: 0;
         border-radius: var(--radius-sm);
         color: var(--text-secondary);
-        font-size: 13px;
+        font-size: 13.5px;
     }
     html .settings-nav-title {
         display: inline-flex;
@@ -466,13 +504,18 @@ html.modern-layout .titlebar {
         font-size: 17px;
         font-weight: 600;
         color: var(--text-primary);
+        margin-left: 4px;
     }
+    /* 平铺列表式导航 (Flat List) */
     .settings-nav {
         flex-direction: column;
         gap: 0;
+        background: transparent;
+        border: none;
+        border-radius: 0;
+        overflow: visible;
     }
-    /* 行：48px 高、14.5px 正文。内边距要带 `html ` 前缀 —— 触摸档那条 .nav-item
-       晚于本节出现，同权重会把它压回 10px */
+    /* 行：48px 高，左右贴边内边距 14px，带图标与尾端箭头 */
     html .settings-nav-item {
         width: 100%;
         height: 48px;
@@ -481,6 +524,10 @@ html.modern-layout .titlebar {
         border-radius: 0;
         border-bottom: 1px solid var(--border-light);
         font-size: 14.5px;
+        background: transparent;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
     }
     html .settings-nav-item:last-child {
         border-bottom: none;
@@ -488,36 +535,27 @@ html.modern-layout .titlebar {
     html .settings-nav-item:active {
         background-color: var(--item-active);
     }
-    /* 行尾的箭头：触摸设备没有悬停，靠它交代「点进去还有一层」 */
     html .settings-nav-chevron {
         display: inline-flex;
         color: var(--text-muted);
     }
-    /* 第二级：该分类的面板占满整屏，顶端一条导航栏 —— 左边回分类列表，右边是当前分类 */
-    .settings-view:not(.is-subpage) .settings-main {
-        display: none;
-    }
-    .settings-view.is-subpage .settings-sidebar {
-        display: none;
-    }
-    /* 这一条必须带 `html ` 前缀：mobile.css 顶部那份「桌面端不排出来」名单里有 .settings-crumb，
-       而它在本文件之后加载，同权重时会把下面这个 display: flex 压回去 —— 那样第二级就没有返回键 */
+    /* 第二级顶端导航栏：左边回分类列表，中间/右边是当前分类 */
     html .settings-crumb {
         display: flex;
         align-items: center;
-        gap: 2px;
+        gap: 4px;
         flex-shrink: 0;
         height: 48px;
         padding: 0 8px;
         border-bottom: 1px solid var(--border-color);
-        background-color: var(--bg-editor);
+        background-color: var(--bg-titlebar);
     }
     .settings-crumb-back {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 34px;
-        height: 34px;
+        width: 36px;
+        height: 36px;
         flex-shrink: 0;
         border-radius: var(--radius-sm);
         color: var(--text-secondary);
@@ -533,61 +571,74 @@ html.modern-layout .titlebar {
         min-width: 0;
         overflow: hidden;
         white-space: nowrap;
-        font-size: 17px;
+        font-size: 16px;
         font-weight: 600;
         color: var(--text-primary);
     }
     .settings-crumb-title .ms-icon {
-        color: var(--text-secondary);
+        color: var(--accent);
     }
     html.modern-layout .settings-view .settings-content,
     html.modern-layout body.is-fullscreen .settings-view .settings-content {
-        padding: 16px;
-        padding-top: 0;
+        padding: 14px 14px calc(24px + env(safe-area-inset-bottom)) 14px;
+        overflow-y: auto;
     }
     html.modern-layout .settings-view .settings-header,
     html:not(.modern-layout) .settings-view .settings-header {
-        /* 名称已在那条导航栏上，这一块只剩说明文字：贴导航栏留一点空即可，不再画分隔线 */
-        padding: 12px 0 0;
+        padding: 4px 0 12px;
         border-bottom: none;
     }
-    /* 顶端渐隐（见 styles/settings.css）跟着上内边距收窄：16px 的留白里放不下 32px 的渐隐 */
     .settings-content {
         --settings-top-inset: 16px;
     }
-    /* 面板里的字号整体压一档：内容区原本照搬桌面端（分类名 20px、设置项 14px），
-       手机上一屏只放得下三四项。正文 13.5px、说明 11.5px，分类名交给导航栏 */
+    /* 面板字号与平铺规范 */
     html .settings-view .settings-title {
         display: none;
     }
     html .settings-view .settings-section-title {
         font-size: 13px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 6px;
     }
     html .settings-view .settings-row-label {
         font-size: 13.5px;
+        font-weight: 500;
     }
     html .settings-view .settings-row-desc {
         font-size: 11.5px;
-        line-height: 1.5;
+        line-height: 1.45;
+        color: var(--text-secondary);
     }
     html .settings-view .settings-desc {
         margin-top: 0;
         font-size: 12.5px;
+        line-height: 1.5;
     }
-    /* 按钮也收回来：触摸档按「放大点击目标」给了 36px 高，设置页里那几枚
-       （重新连接、清空本地副本…）在手机上比旁边的字号大出一圈 */
     html .settings-view .settings-btn {
         height: 30px;
         padding: 0 12px;
         font-size: 12px;
+        border-radius: var(--radius-sm);
     }
-    /* 分类面板里的盒子不再是卡片：设置项与「自定义主题色」那两块（原本都是 --bg-list 底 +
-       描边 + 圆角，Alom 风格下还带一层投影）在窄屏一律摊平成列表项 —— 圆角、描边、
-       底色与投影全去掉，项与项之间只留一条细线（末行不画）。
-       选择器多带一级 .settings-content 是为了压过 Alom 那份同族规则（它重 3 个类） */
+    /* 平铺列表结构 (Flat Section & Row) */
+    .settings-section {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        margin-bottom: 16px;
+        background: transparent;
+        border: none;
+        border-radius: 0;
+        padding: 0;
+    }
+    .settings-section-title {
+        padding-top: 8px;
+        margin-bottom: 2px;
+    }
     html .settings-view .settings-content .settings-row,
     html .settings-view .settings-content .accent-custom {
-        background: none;
+        background: transparent;
         border: none;
         border-radius: 0;
         box-shadow: none;
@@ -603,22 +654,22 @@ html.modern-layout .titlebar {
     html .settings-view .settings-content .settings-row:last-child {
         border-bottom: none;
     }
+    /* 当设置行内只有 label + switch 时，单行横排 */
+    html .settings-view .settings-content .settings-row:not(.is-column):not(:has(.settings-row-desc)):not(:has(.settings-slider)):not(:has(.ai-input-stack)) {
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 44px;
+        padding: 6px 0;
+    }
     html .settings-view .settings-content .accent-custom {
-        padding: 12px 0;
-    }
-    /* 段内因此不再靠 gap 拉开：设置项紧挨着排，不是设置项的那些块（段标题、色板、
-       滑块、说明、快捷键表…）各自带上边距 —— 漏一条就会有一块贴上去 */
-    .settings-section {
-        gap: 0;
-    }
-    .settings-section-title {
-        margin-bottom: 8px;
+        padding: 11px 0;
     }
     .settings-section > * + *:not(.settings-row) {
-        margin-top: 12px;
+        margin-top: 10px;
     }
-    /* 控件行高收到 34px：正文仍是 16px（触摸档那条防 iOS 聚焦放大整页，见本文件第三档），
-       不让它顶着上下边框、看着比旁边的字大一圈 */
+    /* 控件行高与圆角 */
     .settings-select,
     .settings-input,
     .accent-hex-input {
@@ -627,7 +678,8 @@ html.modern-layout .titlebar {
         max-width: none;
         height: 34px;
         padding: 0 10px;
-        font-size: 16px;
+        font-size: 14px;
+        border-radius: var(--radius-sm);
     }
 
     /* 2.9 浮层：弹窗与提示条按屏宽铺开 */

@@ -73,6 +73,52 @@ function renderSettingsNav() {
     });
 }
 
+// 窄屏手势滑动返回支持
+let settingsSwipeBound = false;
+function bindSettingsSwipeGesture() {
+    if (settingsSwipeBound) return;
+    const view = document.getElementById('settings-view');
+    if (!view) return;
+    settingsSwipeBound = true;
+
+    let startX = 0;
+    let startY = 0;
+    let isTracking = false;
+
+    view.addEventListener('touchstart', (e) => {
+        if (!settingsSubpageOpen || !isNarrowScreen() || e.touches.length !== 1) return;
+        const touch = e.touches[0];
+        // 允许在左侧区域（<= 64px）边缘滑动返回
+        if (touch.clientX <= 64) {
+            startX = touch.clientX;
+            startY = touch.clientY;
+            isTracking = true;
+        }
+    }, { passive: true });
+
+    view.addEventListener('touchmove', (e) => {
+        if (!isTracking || e.touches.length !== 1) return;
+        const touch = e.touches[0];
+        const diffX = touch.clientX - startX;
+        const diffY = touch.clientY - startY;
+        // 如果垂直滑动幅度大于水平幅度，放弃滑动手势
+        if (Math.abs(diffY) > Math.abs(diffX) && Math.abs(diffY) > 10) {
+            isTracking = false;
+        }
+    }, { passive: true });
+
+    view.addEventListener('touchend', (e) => {
+        if (!isTracking) return;
+        isTracking = false;
+        const touch = e.changedTouches[0];
+        const diffX = touch.clientX - startX;
+        // 水平右滑超过 60px 触发返回上一级
+        if (diffX > 60) {
+            setSettingsSubpageOpen(false);
+        }
+    }, { passive: true });
+}
+
 function renderSettingsView() {
     renderSettingsNav();
     const content = document.getElementById('settings-content');
@@ -100,6 +146,8 @@ function renderSettingsView() {
     if (crumbText) crumbText.textContent = categoryLabel(category.id, category.label);
     const crumb = document.getElementById('btn-settings-crumb');
     if (crumb) crumb.onclick = () => setSettingsSubpageOpen(false);
+
+    bindSettingsSwipeGesture();
 
     // 面板里的原生下拉同样升级成自绘菜单（bindCustomSelect 自带幂等判定）
     initCustomSelects();
@@ -150,7 +198,7 @@ function appearancePanelHTML() {
         ${panelHeader('外观', '界面布局、缩放、主题与主题色，改动立即生效并保存在本浏览器', 'palette')}
         <div class="settings-section">
             <div class="settings-section-title">界面</div>
-            <div class="settings-row">
+            <div class="settings-row settings-row-desktop-only">
                 <div class="settings-row-info">
                     <span class="settings-row-label">布局风格</span>
                     <span class="settings-row-desc">现代布局不排标题栏，标签页移到工作区顶部、入口悬浮到右上角；经典布局保留标题栏与标签栏</span>
@@ -160,7 +208,7 @@ function appearancePanelHTML() {
                     <option value="classic">经典布局</option>
                 </select>
             </div>
-            <div class="settings-row settings-row-modern-only">
+            <div class="settings-row settings-row-modern-only settings-row-desktop-only">
                 <div class="settings-row-info">
                     <span class="settings-row-label">禁用标签页</span>
                     <span class="settings-row-desc">仅现代布局：收起整条标签栏，内容直达窗口上沿；标签状态不会丢失，关闭开关即恢复</span>
@@ -199,7 +247,7 @@ function appearancePanelHTML() {
                 </div>
                 ${radiusSliderHTML()}
             </div>
-            <div class="settings-row">
+            <div class="settings-row settings-row-desktop-only">
                 <div class="settings-row-info">
                     <span class="settings-row-label">侧边栏默认收起</span>
                     <span class="settings-row-desc">收起后只保留一条窄条，筛选入口仅显示图标</span>
@@ -1190,7 +1238,7 @@ function systemPanelHTML() {
                 <div class="settings-path">服务端：${escapeHTML(Sync.baseUrl())}${escapeHTML(SYNC_PATH)}</div>
             </div>
         </div>
-        <div class="settings-section">
+        <div class="settings-section settings-row-desktop-only">
             <div class="settings-section-title">快捷键</div>
             <div class="shortcut-list">
                 ${shortcuts.map(([label, keys]) => `
