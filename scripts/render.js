@@ -397,6 +397,7 @@ function createNoteCard(note) {
     card.innerHTML = `
         <div class="note-card-title">
             <span>${escapeHTML(note.title || '未命名笔记')}</span>
+            ${isSharedItem(note) ? `<span class="ms-icon xs" title="来自账户 ${escapeHTML(sharedItemOwner(note))} 的共享笔记">group</span>` : ''}
             ${note.locked === true ? '<span class="ms-icon xs fill" style="color: var(--accent);">lock</span>' : ''}
             ${note.isPinned ? '<span class="ms-icon xs fill" style="color: var(--accent);">push_pin</span>' : ''}
         </div>
@@ -944,6 +945,7 @@ function showItemContextMenu(x, y, itemId) {
     if (!item) return;
     contextMenuItemId = itemId;
     const isTodo = isTodoItem(item);
+    const shared = isSharedItem(item);
 
     const entries = [];
     if (item.isTrashed) {
@@ -951,7 +953,10 @@ function showItemContextMenu(x, y, itemId) {
         entries.push({ icon: 'content_copy', label: '复制正文', action: () => copyItemContent(itemId) });
         entries.push({ icon: 'download', label: '导出 Markdown', action: () => exportItemMarkdown(itemId) });
         entries.push({ divider: true });
-        entries.push({ icon: 'delete_forever', label: '彻底删除', danger: true, action: () => purgeItem(itemId) });
+        /* 共享过来的笔记属于所有者：删除要经「退出共享」，不给彻底删除 */
+        entries.push(shared && typeof leaveSharedNoteFromMenu === 'function'
+            ? { icon: 'link_off', label: '退出共享', danger: true, action: () => leaveSharedNoteFromMenu(itemId) }
+            : { icon: 'delete_forever', label: '彻底删除', danger: true, action: () => purgeItem(itemId) });
     } else {
         entries.push({
             icon: item.isPinned ? 'push_pin' : 'keep',
@@ -965,23 +970,38 @@ function showItemContextMenu(x, y, itemId) {
                 action: () => toggleTodoDone(itemId)
             });
         }
-        /* 秘密本：隐藏与密码。隐藏后条目不再出现在任何列表里，只能去「设置 → 秘密本」找回。
-           已解锁的加密条目另给一个马上重新上锁的入口 */
-        entries.push({
-            icon: item.isHidden === true ? 'visibility' : 'visibility_off',
-            label: item.isHidden === true ? '取消隐藏' : '隐藏文档',
-            action: () => toggleItemHidden(itemId)
-        });
-        entries.push(item.locked === true
-            ? { icon: 'key_off', label: '解除密码', action: () => removeItemPassword(itemId) }
-            : { icon: 'lock', label: '设置密码', action: () => setItemPassword(itemId) });
-        if (item.locked === true && item.unlocked === true) {
-            entries.push({ icon: 'lock', label: '立即锁定', action: () => lockItemNow(itemId) });
+        if (shared) {
+            /* 共享过来的笔记：隐藏、密码与废纸篓都会连带改到所有者那一篇（或本就删不掉），
+               因此只给「置顶 / 复制 / 导出 / 退出共享」这一组动作 */
+            entries.push({ icon: 'content_copy', label: '复制正文', action: () => copyItemContent(itemId) });
+            entries.push({ icon: 'download', label: '导出 Markdown', action: () => exportItemMarkdown(itemId) });
+            if (typeof leaveSharedNoteFromMenu === 'function') {
+                entries.push({ divider: true });
+                entries.push({ icon: 'link_off', label: '退出共享', danger: true, action: () => leaveSharedNoteFromMenu(itemId) });
+            }
+        } else {
+            /* 秘密本：隐藏与密码。隐藏后条目不再出现在任何列表里，只能去「设置 → 秘密本」找回。
+               已解锁的加密条目另给一个马上重新上锁的入口 */
+            entries.push({
+                icon: item.isHidden === true ? 'visibility' : 'visibility_off',
+                label: item.isHidden === true ? '取消隐藏' : '隐藏文档',
+                action: () => toggleItemHidden(itemId)
+            });
+            entries.push(item.locked === true
+                ? { icon: 'key_off', label: '解除密码', action: () => removeItemPassword(itemId) }
+                : { icon: 'lock', label: '设置密码', action: () => setItemPassword(itemId) });
+            if (item.locked === true && item.unlocked === true) {
+                entries.push({ icon: 'lock', label: '立即锁定', action: () => lockItemNow(itemId) });
+            }
+            entries.push({ icon: 'content_copy', label: '复制正文', action: () => copyItemContent(itemId) });
+            entries.push({ icon: 'download', label: '导出 Markdown', action: () => exportItemMarkdown(itemId) });
+            /* 团队笔记：只对笔记开放；加密条目共享出去的是密文，隐藏条目本就不在列表里 */
+            if (!isTodo && !isSecretItem(item) && typeof shareNoteFromMenu === 'function') {
+                entries.push({ icon: 'share', label: '共享…', action: () => shareNoteFromMenu(itemId) });
+            }
+            entries.push({ divider: true });
+            entries.push({ icon: 'delete', label: '移入废纸篓', danger: true, action: () => moveToTrash(itemId) });
         }
-        entries.push({ icon: 'content_copy', label: '复制正文', action: () => copyItemContent(itemId) });
-        entries.push({ icon: 'download', label: '导出 Markdown', action: () => exportItemMarkdown(itemId) });
-        entries.push({ divider: true });
-        entries.push({ icon: 'delete', label: '移入废纸篓', danger: true, action: () => moveToTrash(itemId) });
     }
     buildContextMenu(x, y, entries, 'item');
 }

@@ -169,6 +169,11 @@ function togglePin(itemId) {
 function moveToTrash(itemId) {
     const item = getItemById(itemId);
     if (!item || item.isTrashed) return;
+    // 共享笔记是所有者那一篇：移进废纸篓等于替对方把它丢掉，接收方只能退出共享
+    if (isSharedItem(item)) {
+        showToast('共享笔记不能移入废纸篓：可在菜单里「退出共享」');
+        return;
+    }
     item.isTrashed = true;
     closeTab(itemId);
     saveItem(item);
@@ -220,6 +225,11 @@ async function copyItemContent(itemId) {
 async function purgeItem(itemId) {
     const item = getItemById(itemId);
     if (!item) return;
+    // 共享过来的笔记删不掉：它属于所有者，接收方只能退出共享（服务端同样拒收这种删除）
+    if (isSharedItem(item)) {
+        showToast('共享笔记不能彻底删除：可在菜单里「退出共享」');
+        return;
+    }
     const label = itemKindLabel(item);
     const confirmed = await showConfirm(`彻底删除“${itemDisplayTitle(item)}”？`, {
         title: `彻底删除${label}`,
@@ -261,9 +271,11 @@ async function clearTrash() {
 // 真正的清空。确认步骤由调用方负责：侧边栏那枚走 showConfirm 弹窗，
 // 手机底栏那枚（废纸篓下由「新建」换成「清空」）用贴底面板确认，两者不叠加。
 function performClearTrash() {
-    [...State.notes, ...State.todos].filter((item) => item.isTrashed).forEach((item) => deleteItemFile(item));
+    /* 共享过来的笔记不随废纸篓一起清掉：它属于所有者，只有「退出共享」才能让它离开 */
+    [...State.notes, ...State.todos].filter((item) => item.isTrashed && !isSharedItem(item))
+        .forEach((item) => deleteItemFile(item));
     State.openNoteIds = State.openNoteIds.filter((id) => !!getItemById(id));
-    State.notes = State.notes.filter((item) => !item.isTrashed);
+    State.notes = State.notes.filter((item) => !item.isTrashed || isSharedItem(item));
     State.todos = State.todos.filter((item) => !item.isTrashed);
     renderApp();
     showToast('已清空废纸篓');
@@ -275,7 +287,9 @@ function purgeExpiredTrashItems() {
     if (!days) return 0;
 
     const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-    const expired = [...State.notes, ...State.todos].filter((item) => item.isTrashed && (item.updatedAt || 0) < cutoff);
+    // 共享过来的笔记（属于所有者）不参与自动清理：它在废纸篓里只是对方把它丢掉了
+    const expired = [...State.notes, ...State.todos]
+        .filter((item) => item.isTrashed && !isSharedItem(item) && (item.updatedAt || 0) < cutoff);
     if (!expired.length) return 0;
 
     expired.forEach((item) => deleteItemFile(item));

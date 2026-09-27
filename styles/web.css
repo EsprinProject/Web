@@ -836,3 +836,70 @@ html.modern-layout .titlebar {
         -webkit-tap-highlight-color: transparent;
     }
 }
+
+/* ---------------- 团队笔记（共享） ----------------
+   设置页「数据与同步 → 团队笔记」的两个列表（收到的请求、共享到手与共享出去的笔记）：
+   与 .secret-list 同一套卡片观感与宽度上限，动作按钮多于一个时允许折行 */
+
+.team-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 680px;
+}
+.team-list:empty {
+    display: none;
+}
+.team-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 16px;
+    background: var(--bg-list);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+.team-item-main {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+.team-item-main .ms-icon {
+    flex-shrink: 0;
+    color: var(--text-secondary);
+}
+.team-item-text {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+.team-item-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.team-item-meta {
+    font-size: 11.5px;
+    color: var(--text-muted);
+}
+.team-item-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    flex-shrink: 0;
+}
+.team-empty {
+    padding: 18px 16px;
+    border: 1px dashed var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: 12px;
+    color: var(--text-muted);
+}

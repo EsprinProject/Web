@@ -1,11 +1,14 @@
 /* 数据层：条目模型、与桌面版一致的 .md 文件格式，以及浏览器内的持久化。
    本地数据以「一份文件一段文本」的形式保存（notes/{id}.md、todos/{id}.md），
-   与同步协议里的路径一一对应，推拉操作因此可以直接取用同一份文本。 */
+   与同步协议里的路径一一对应，推拉操作因此可以直接取用同一份文本。
+   团队笔记（共享笔记）另有一个 shared/ 子目录，见下面「团队笔记」一节。 */
 
 const META_HEADER = 'EsprinData';
 const META_BLOCK_PATTERN = /^<!--[ \t]*EsprinData[ \t]*\r?\n([\s\S]*?)(?:\r?\n)?[ \t]*-->[ \t]*(?=\r?\n|$)/;
 const NOTE_DIR = 'notes';
 const TODO_DIR = 'todos';
+// 别人共享过来的笔记：shared/<所有者 id>/<条目 id>.md，与桌面版同路径
+const SHARED_DIR = 'shared';
 // AI 对话：与桌面版同名同目录，但**不**参与同步（同步只认 notes/ 与 todos/ 下的 Markdown），
 // 它们只存在本浏览器里，免得把一份带密钥痕迹的对话记进服务器的操作日志
 const AI_CHAT_DIR = 'ai_chats';
@@ -555,7 +558,55 @@ const FileStore = {
 
 /* ---------------- 条目助手 ---------------- */
 
+/* ---------------- 团队笔记（共享笔记） ----------------
+
+   别人共享过来的笔记落在 shared/<所有者 id>/<条目 id>.md：每份文件对应服务端日志里
+   一条同名的投影操作，内容与所有者那份始终一致（见 scripts/team_notes.js）。
+   条目 id 带 shared: 前缀，与本地随机 id 各成一套，不会撞上；写回去的改动与服务端那条
+   投影路径同名，服务端据此改写路径落进所有者的日志。 */
+
+const SHARED_OWNER_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+const SHARED_PATH_PATTERN = /^shared\/([A-Za-z0-9_-]{1,64})\/([A-Za-z0-9_-]{1,64})\.md$/;
+
+function sharedItemId(owner, noteId) {
+    return `shared:${owner}:${noteId}`;
+}
+
+// 客户端条目 id → 共享来源；不是共享笔记时返回 null
+function parseSharedItemId(itemId) {
+    const matched = /^shared:([A-Za-z0-9_-]{1,64}):([A-Za-z0-9_-]{1,64})$/.exec(String(itemId || ''));
+    return matched ? { owner: matched[1], noteId: matched[2] } : null;
+}
+
+// 数据路径 → 共享来源；不是投影路径时返回 null
+function parseSharedPath(path) {
+    const matched = SHARED_PATH_PATTERN.exec(String(path || ''));
+    return matched ? { owner: matched[1], noteId: matched[2] } : null;
+}
+
+// 是否为「别人共享过来的」笔记：这类条目的正文属于所有者，接收方只能改内容与基本元数据
+function isSharedItem(item) {
+    return !!(item && item.shared && item.shared.owner && item.shared.noteId);
+}
+
+// 共享来源（所有者的账户 id），非共享条目返回空串
+function sharedItemOwner(item) {
+    return isSharedItem(item) ? String(item.shared.owner) : '';
+}
+
+function sharedItemPath(owner, noteId) {
+    return `${SHARED_DIR}/${owner}/${noteId}.md`;
+}
+
+// 文件路径 → 条目 id：共享笔记带来源前缀，其余取文件名
+function itemIdFromPath(path) {
+    const shared = parseSharedPath(path);
+    if (shared) return sharedItemId(shared.owner, shared.noteId);
+    return path.slice(path.lastIndexOf('/') + 1).replace(/\.md$/i, '');
+}
+
 function itemPath(item) {
+    if (isSharedItem(item)) return sharedItemPath(item.shared.owner, item.shared.noteId);
     return `${isTodoItem(item) ? TODO_DIR : NOTE_DIR}/${item.id}.md`;
 }
 
@@ -629,8 +680,9 @@ function isItemIdTaken(id) {
 
 // .md 文件 → 条目对象
 function buildItemFromFile(path, text) {
-    const isTodo = path.startsWith(`${TODO_DIR}/`);
-    const id = path.slice(path.lastIndexOf('/') + 1).replace(/\.md$/i, '');
+    const shared = parseSharedPath(path);
+    const isTodo = !shared && path.startsWith(`${TODO_DIR}/`);
+    const id = shared ? sharedItemId(shared.owner, shared.noteId) : itemIdFromPath(path);
     const { meta, content } = parseItemFile(text);
     const now = Date.now();
     const item = {
@@ -651,6 +703,7 @@ function buildItemFromFile(path, text) {
         updatedAt: meta ? readMetaNumber(meta.updatedAt, now) : now
     };
     if (isTodo) item.isDone = meta ? readMetaBoolean(meta.isDone, false) : false;
+    if (shared) item.shared = { owner: shared.owner, noteId: shared.noteId };
     // id 取自文件名；元数据里没有标题时按与桌面版一致的规则回落正文首行
     markItemKind(item, isTodo ? 'todo' : 'note');
     return item;
@@ -666,7 +719,9 @@ async function loadItemsFromStore() {
     const notes = [];
     const todos = [];
     Object.keys(files).sort().forEach((path) => {
-        if (path.startsWith(`${NOTE_DIR}/`) && path.endsWith('.md')) {
+        /* 共享笔记同样进 notes：列表、搜索与编辑器都按普通笔记用它
+           （id 带 shared: 前缀，与本地条目各成一套） */
+        if ((path.startsWith(`${NOTE_DIR}/`) || parseSharedPath(path)) && path.endsWith('.md')) {
             notes.push(buildItemFromFile(path, files[path]));
         } else if (path.startsWith(`${TODO_DIR}/`) && path.endsWith('.md')) {
             todos.push(buildItemFromFile(path, files[path]));
@@ -713,7 +768,9 @@ function deleteItemFile(item) {
     const path = itemPath(item);
     if (!FileStore.memory.has(path)) return false;
     FileStore.remove(path);
-    Sync.queueLocalChange('del', path);
+    /* 共享笔记的删除不推给服务端：它属于所有者，接收方只能「退出共享」
+       （服务端也会拒收接收方对投影路径的删除） */
+    if (!isSharedItem(item)) Sync.queueLocalChange('del', path);
     return true;
 }
 
@@ -732,7 +789,7 @@ function applyRemoteFile(path, text) {
 }
 
 function removeRemoteFile(path) {
-    const id = path.slice(path.lastIndexOf('/') + 1).replace(/\.md$/i, '');
+    const id = itemIdFromPath(path);
     FileStore.remove(path);
     forgetSecretKey(id);
     State.notes = State.notes.filter((item) => item.id !== id);
@@ -980,13 +1037,15 @@ function searchPlaceholderText(filter) {
 
 /* ---------------- 数据备份 ---------------- */
 
-// 导出备份：条目数组，导入时按同一套规则恢复
+// 导出备份：条目数组，导入时按同一套规则恢复。
+// 共享过来的笔记不进备份：它属于所有者，重新登录后会由同步拉回来；
+// 导出成一条普通条目反而会在导入时变成一份与所有者脱钩的本地副本
 function exportBackup() {
     return {
         version: 1,
         exportedAt: Date.now(),
         folders: State.folders,
-        items: [...State.notes, ...State.todos].map((item) => ({
+        items: [...State.notes, ...State.todos].filter((item) => !isSharedItem(item)).map((item) => ({
             id: item.id,
             kind: isTodoItem(item) ? 'todo' : 'note',
             title: item.title,

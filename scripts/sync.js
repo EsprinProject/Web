@@ -756,7 +756,9 @@ const Sync = {
     // 本地有未推送改动时保留本地（与桌面版的 keep-local 策略一致）
     applyRemoteOp(op) {
         const path = String(op && op.path ? op.path : '');
-        if (!path.startsWith('notes/') && !path.startsWith('todos/')) return false;
+        /* 三类路径都算同步对象：自己的笔记、待办，以及别人共享过来的投影
+           （shared/<所有者 id>/<条目 id>.md），见 scripts/team_notes.js */
+        if (!parseSharedPath(path) && !path.startsWith('notes/') && !path.startsWith('todos/')) return false;
         if (!path.endsWith('.md')) return false;
         // 本机自己推上去的操作不必再应用一遍：本地早就落盘了。
         // 彻底删掉一个条目、又用回收的 ID 新建之后，本机很可能还没拉到自己那条删除，
@@ -816,10 +818,19 @@ const Sync = {
             .filter((item) => item && !item.error && Number(item.seq) > 0)
             .map((item) => Number(item.seq)));
         const failedIds = new Set(accepted.filter((item) => item && item.error).map((item) => item.opId));
+        /* 共享笔记的投影路径被拒（共享已撤销 / 从未同意过）：这条操作永远不会成功，
+           留在队列里只会无限重推，因此直接丢掉 */
+        const droppedIds = new Set(batch
+            .filter((op) => failedIds.has(op.opId) && parseSharedPath(op.path))
+            .map((op) => op.opId));
+        if (droppedIds.size) {
+            console.warn(`[WARN] [Sync] 共享笔记的操作被服务端拒绝，已从队列丢弃 (count=${droppedIds.size})`);
+        }
         const sentIds = new Set(batch.map((item) => item.opId));
         const before = this.outbox.length;
-        // 服务端明确报错的条目留在队列里，其余（含重复提交）都算已交付
-        this.outbox = this.outbox.filter((item) => !sentIds.has(item.opId) || failedIds.has(item.opId));
+        // 服务端明确报错的条目留在队列里（共享路径的那几条除外），其余（含重复提交）都算已交付
+        this.outbox = this.outbox.filter((item) => !sentIds.has(item.opId)
+            || (failedIds.has(item.opId) && !droppedIds.has(item.opId)));
         this.writeOutbox();
 
         const firstError = accepted.find((item) => item && item.error);
@@ -891,6 +902,51 @@ const Sync = {
         return id;
     },
 
+    /* ---------------- 团队笔记（共享） ----------------
+
+       共享关系存在服务端（谁把哪一篇共享给了谁、对方同意了没有），正文不复制：
+       接收方拿到的是所有者那篇内容在自己日志里的投影（shared/<所有者 id>/<条目 id>.md），
+       写回去的操作由服务端改写路径落进所有者的日志。
+       同意 / 撤销 / 退出之后都追一次同步：投影那条操作要么拉下来、要么把本地那份删掉。 */
+
+    async listShares() {
+        if (!State.sync.enabled) return { ok: false, error: '尚未连接到服务端' };
+        const result = await this.apiRequest('GET', `${SYNC_PATH}/shares`, null, 8000);
+        if (!result.ok) return { ok: false, status: result.status, error: result.error };
+        return { ok: true, data: result.data };
+    },
+
+    async requestShare(path, target) {
+        if (!State.sync.enabled) return { ok: false, error: '尚未连接到服务端' };
+        const who = String(target == null ? '' : target).trim();
+        if (!who) return { ok: false, error: '请填写对方的用户 ID' };
+        const result = await this.apiRequest('POST', `${SYNC_PATH}/shares/request`, { path, target: who });
+        if (!result.ok) return { ok: false, status: result.status, error: result.error };
+        return { ok: true, data: result.data };
+    },
+
+    // 同意 / 拒绝 / 撤销 / 退出共用一条路径：请求成功后立刻同步一次，让投影落地（或被删掉）
+    async shareAction(pathname, payload = {}) {
+        if (!State.sync.enabled) return { ok: false, error: '尚未连接到服务端' };
+        const id = String(payload.id == null ? '' : payload.id).trim();
+        if (!id) return { ok: false, error: '缺少共享记录标识' };
+
+        const body = { id };
+        if (pathname.endsWith('/respond')) body.accept = payload.accept !== false;
+
+        const result = await this.apiRequest('POST', `${SYNC_PATH}${pathname}`, body);
+        if (!result.ok) return { ok: false, status: result.status, error: result.error };
+
+        const synced = await this.syncNow({ reason: '团队笔记' });
+        return {
+            ok: true,
+            status: result.data.status || '',
+            share: result.data.share || null,
+            synced: synced && synced.ok ? synced : null,
+            syncError: synced && !synced.ok ? synced.error : ''
+        };
+    },
+
     /* ---------------- 组合动作 ---------------- */
 
     async syncNow({ full = false, reason = '手动' } = {}) {
@@ -954,6 +1010,9 @@ const Sync = {
             return { ok: false, error };
         }
         logSyncState(`同步完成 (reason=${reason}, ${summary})`);
+        /* 共享关系存在服务端：别人新发来的共享请求不会带来任何本地文件改动，
+           只有在这里对一次共享列表才可能察觉（见 scripts/team_notes.js） */
+        if (typeof refreshTeamNotesSoon === 'function') refreshTeamNotesSoon();
         return { ok: true, summary };
     },
 

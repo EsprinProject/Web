@@ -691,7 +691,7 @@ function dataPanelHTML() {
     const noteCount = State.notes.length;
     const todoCount = State.todos.length;
     const bytes = [...FileStore.memory.entries()]
-        .filter(([path]) => path.startsWith('notes/') || path.startsWith('todos/'))
+        .filter(([path]) => path.startsWith('notes/') || path.startsWith('todos/') || parseSharedPath(path))
         .reduce((total, [, text]) => total + utf8Bytes(text).length, 0);
 
     // 本地模式（页面不由 EsprinSync 托管）里没有自建同步这回事：这一整节都不排出来
@@ -744,11 +744,32 @@ function dataPanelHTML() {
         </div>
     ` : '';
 
+    /* 团队笔记：共享请求、共享到手与共享出去的笔记都汇总在这里（见 scripts/team_notes.js）。
+       列表内容由 syncTeamNotesSettingsUI 填，这里只排出骨架 */
+    const teamSection = Sync.supportsSync() ? `
+        <div class="settings-section">
+            <div class="settings-section-title">团队笔记</div>
+            <div class="settings-row">
+                <div class="settings-row-info">
+                    <span class="settings-row-label">共享请求</span>
+                    <span class="settings-row-desc">别人把笔记共享过来时会出现在这里，同意后那篇笔记会同时出现在双方的笔记列表里（接收方保存在本地的 shared/ 子目录下）。共享笔记在列表中带有共享标记，正文可以直接编辑，改动会同步给所有者；隐藏、密码与废纸篓这些会连带改到对方那一篇的动作对共享笔记不可用，只能「退出共享」</span>
+                </div>
+                <div class="settings-actions">
+                    <button class="settings-btn" type="button" id="btn-team-refresh" title="重新向服务器读取共享列表">刷新</button>
+                </div>
+            </div>
+            <div class="team-list" id="team-requests"></div>
+            <div class="team-list" id="team-shared"></div>
+            <div class="settings-row-desc sync-status" id="team-status">正在读取共享列表…</div>
+        </div>
+    ` : '';
+
     return `
         ${panelHeader(categoryLabel('data', '数据与同步'), Sync.supportsSync()
             ? '本地只保留一份副本（缓存）用于离线阅读与加速启动；连接服务端后，内容的权威副本在 EsprinSync 上'
             : '笔记与待办只存在本浏览器，离线可用；导出备份可以把全部内容带走', 'folder')}
         ${syncSection}
+        ${teamSection}
         <div class="settings-section">
             <div class="settings-section-title">数据与存储</div>
             <div class="settings-row is-column">
@@ -951,6 +972,17 @@ function bindDataSyncPanel() {
     CUSTOM_SELECTS.forEach((entry) => {
         if (entry.select === auto) refreshCustomSelect(entry);
     });
+
+    /* 团队笔记：设置面板每次进入都会重建 DOM，因此按钮绑定与列表渲染都在这里跟着重做。
+       调用前判一下存在：网页版克隆偏旧时（没有 scripts/team_notes.js）这一节安静缺席，
+       不影响其余面板 */
+    const teamRefresh = document.getElementById('btn-team-refresh');
+    if (teamRefresh && typeof refreshTeamNotes === 'function') {
+        teamRefresh.onclick = () => {
+            refreshTeamNotes().then(() => showToast('已刷新共享列表'));
+        };
+    }
+    if (document.getElementById('team-requests') && typeof refreshTeamNotesSoon === 'function') refreshTeamNotesSoon();
 }
 
 /* ---------------- AI 助手 ----------------

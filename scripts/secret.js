@@ -710,6 +710,11 @@ async function askNewSecretPassword() {
 function toggleItemHidden(itemId) {
     const item = getItemById(itemId);
     if (!item) return;
+    // 共享笔记的元数据写在所有者那份文件里：接收方隐藏它等于替对方隐藏
+    if (isSharedItem(item)) {
+        showToast('共享笔记不能隐藏：状态会一并写到所有者的那份笔记上');
+        return;
+    }
     item.isHidden = !isSecretHidden(item);
     saveItem(item);
     renderApp();
@@ -720,6 +725,11 @@ function toggleItemHidden(itemId) {
 async function setItemPassword(itemId) {
     const item = getItemById(itemId);
     if (!item || item.locked === true) return;
+    // 共享笔记的正文要与所有者保持一致，不能只在本地加密（密文会被推给对方）
+    if (isSharedItem(item)) {
+        showToast('共享笔记不能设置密码：正文需与所有者保持一致');
+        return;
+    }
 
     // 正在编辑的条目可能还有没落盘的输入：先写进内存，免得把旧正文加密进去
     if (State.activeNoteId === itemId) flushPendingSave();
