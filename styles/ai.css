@@ -385,7 +385,6 @@
     flex-direction: column;
     gap: 8px;
     padding: 10px 12px 12px 12px;
-    border-top: 1px solid var(--border-color);
 }
 /* 输入框这一层「字段」：边框、底色与圆角挂在它身上，正文与内部那条底栏各占一行。
    底栏排在正文下方而不是叠在正文上，所以输入框内部滚动时正文不会钻到按钮底下；
