@@ -9,7 +9,7 @@
    注册入口在 scripts/app.js 的 registerServiceWorker：file:// 与局域网 http 下浏览器不给
    Service Worker，那种环境里这一份不会生效（界面本身不依赖它）。 */
 
-const CACHE_NAME = 'esprinnemo-web-v13';
+const CACHE_NAME = 'esprinnemo-web-v14';
 // 首页地址按注册作用域取：根路径托管时是「/」，子路径托管时是「/xxx/」。
 // 用 sw.js 自己的地址推（注册作用域就是它所在的目录）——self.registration 在脚本求值期
 // 不一定就位，取不到会让整个 Service Worker 装不上
@@ -19,11 +19,8 @@ const SHELL_ASSETS = [
     HOME_URL,
     'index.html',
     'manifest.webmanifest',
-    'favicon.png',
-    'icon-180.png',
-    'icon-192.png',
-    'icon-512.png',
-    'icon-512-maskable.png',
+    'Main.new.svg',
+    'Main.new.png',
     'fonts/material-symbols/material-symbols-rounded.woff2',
     'fonts/Mohave/Mohave-VariableFont_wght.ttf',
     'styles/tokens.css',

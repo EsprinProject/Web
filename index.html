@@ -16,13 +16,14 @@
 <title>EsprinNemo</title>
 <!-- 图标字形与品牌字都随仓库分发（见 styles/tokens.css 的 @font-face）：离线打开照样有图标，
      页面不向外请求任何资源 -->
-<link rel="icon" type="image/png" href="favicon.png">
+<link rel="icon" type="image/svg+xml" href="Main.new.svg">
 <!-- 本地资源一律相对引用：服务端把本页挂在根路径 / 时解析结果与绝对路径一致，
      双击打开（file://）或换个子路径托管时也不至于取不到 -->
-<link rel="icon" type="image/png" href="favicon.png">
-<!-- 安装为应用：清单（名称 / 图标 / 独立窗口）与 iOS 的主屏幕图标；离线外壳见 sw.js -->
+<link rel="icon" type="image/png" href="Main.new.png">
+<!-- 安装为应用：清单（名称 / 图标 / 独立窗口）与 iOS 的主屏幕图标；
+     iOS 与部分旧浏览器不认 SVG，那一份 PNG 是同一图形的位图版本；离线外壳见 sw.js -->
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="apple-touch-icon" href="Main.new.png">
 <link rel="stylesheet" href="styles/tokens.css">
 <link rel="stylesheet" href="styles/base.css">
 <link rel="stylesheet" href="styles/sidebar.css">

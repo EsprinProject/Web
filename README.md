@@ -1,4 +1,4 @@
-<img src="https://raw.githubusercontent.com/EsprinProject/Logos/main/Web.png" width="88" height="88" alt="EsprinNemo 网页版">
+<img src="https://raw.githubusercontent.com/EsprinProject/Logos/main/Main.new.svg" width="88" height="88" alt="EsprinNemo 网页版">
 
 # EsprinNemo 网页版
 
@@ -19,10 +19,10 @@ EsprinNemo 的网页客户端，独立仓库 `EsprinProject/Web`。EsprinSync �
 ```
 EsprinProject/Web/
 ├── index.html          页面骨架（标题栏 / 侧边栏 / 笔记列表 / 工作区 / AI 面板 / 设置）
-├── favicon.png         站点图标（1032×1032 源图，取 EsprinProject/Logos 的 Main.png，PWA 图标由它生成）
+├── Main.new.svg        站点图标矢量源（取 EsprinProject/Logos 同名文件，逐字节一致）
+├── Main.new.png        同图形的位图版（iOS 主屏幕图标等只认位图的位置用它）
 ├── manifest.webmanifest  PWA 清单：名称、图标、独立窗口、启动配色
 ├── sw.js               Service Worker：界面外壳缓存与断网回退
-├── icon-192.png        安装图标（icon-512.png / icon-512-maskable.png / icon-180.png 同批）
 ├── fonts/              字体随仓库分发，断网也照常有图标
 │   ├── material-symbols/  图标字形（Material Symbols Rounded 变量字体，Apache-2.0）
 │   └── Mohave/            品牌字体（Mohave 可变字重，OFL）
@@ -54,8 +54,6 @@ EsprinProject/Web/
     ├── secret.js      秘密本：AES-256-GCM 与 PBKDF2-SHA256（纯 JS）、信封、隐藏 / 密码操作
     ├── settings.js     设置视图（编辑器 / 外观 / AI 助手 / 秘密本 / 数据与同步 / 系统）
     └── app.js          主题、主题风格、侧边栏形态与窄屏换档、快捷键与启动流程
-└── tools/
-    └── make_pwa_icons.py  PWA 图标生成：从 favicon.png 出 192 / 512 / maskable 512 / 180 四枚
 ```
 
 网页版不提供小本本与字体定制：`scripts/scratchpad.js`、`styles/scratchpad.css` 已不再被页面引用。
@@ -182,9 +180,9 @@ python -m http.server 8686        # 或 npx serve -l 8686
 网页版带清单与 Service Worker，可以在手机或桌面上装成独立窗口的应用：
 
 - **清单** `manifest.webmanifest`：名称、`display: standalone`，`start_url` / `scope` / `id` 都是 `/`，
-  深色启动底色，三枚图标（192 / 512 / maskable 512）加 iOS 用的 `apple-touch-icon`。
-  图标由 `tools/make_pwa_icons.py` 从 `favicon.png` 生成（纯标准库的面积平均缩放，不依赖 Pillow），
-  `favicon.png` 是 `EsprinProject/Logos` 的 `Main.png` 的逐字节副本；换图标时先从 Logos 复制源图再重跑脚本；
+  深色启动底色，两枚图标（矢量 `Main.new.svg` 与位图 `Main.new.png`，后者兼作 maskable）
+  加 iOS 用的 `apple-touch-icon`；`Main.new.svg` 与 `Main.new.png` 都是 `EsprinProject/Logos`
+  同名文件的逐字节副本，换图标时从 Logos 复制这两份过来即可；
 - **Service Worker** `sw.js`：把界面外壳（首页、样式、脚本、图标、字体）装进版本化缓存 ——
   导航请求网络优先、断网回退到缓存，静态资源 stale-while-revalidate；
   `/sync`、`/admin`、`/health` 一律放给网络，同步与鉴权不经过缓存。
@@ -208,8 +206,8 @@ python -m http.server 8686        # 或 npx serve -l 8686
 http://<服务器地址>:8686/
 ```
 
-- `/` 返回网页版界面（`/styles/*`、`/scripts/*`、`/fonts/*`、`/favicon.png` 以及 PWA 的
-  `/manifest.webmanifest`、`/sw.js` 与 `icon-*.png` 是它的静态资源）；
+- `/` 返回网页版界面（`/styles/*`、`/scripts/*`、`/fonts/*` 以及 PWA 的
+  `/manifest.webmanifest`、`/sw.js`、`/Main.new.svg`、`/Main.new.png` 是它的静态资源）；
 - `/health` 返回服务端状态 JSON（旧根路径 JSON 响应的去处，含 `passwordSet` / `tokenCount` / `accountCount`）；
 - `/sync/*` 为同步接口，`/admin` 为管理后台（`/admin/app.css`、`/admin/app.js`、`/admin/fonts/*` 是它的静态资源，`/admin/api/*` 是它的接口）。
 
